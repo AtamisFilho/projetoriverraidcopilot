@@ -1,0 +1,24 @@
+// Prisma schema — River Raid Remaster
+// Modelo de ranking global (a especificação do PDF pedia
+// "sistema de ranking global e local"; o local vive no localStorage,
+// o global aqui no SQLite via API routes).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Score {
+  id        String   @id @default(cuid())
+  name      String
+  score     Int
+  stage     Int
+  kills     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([score])
+}
