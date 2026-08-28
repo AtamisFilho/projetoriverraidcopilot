@@ -65,4 +65,7 @@ prompt
 
 server.log
 # Skills directory
-/skills/tool-results/
+/skills/
+
+# artefatos de ferramentas de agente
+/tool-results/
