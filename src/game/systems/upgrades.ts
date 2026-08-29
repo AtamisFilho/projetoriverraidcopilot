@@ -59,10 +59,16 @@ export function applyUpgrades(
   stats: PlayerStats,
   levels: Record<string, number>
 ): void {
-  const speedLv = levels['speed'] ?? 0;
-  const fireLv = levels['fire_rate'] ?? 0;
-  const fuelLv = levels['fuel_efficiency'] ?? 0;
-  const shieldLv = levels['shield_duration'] ?? 0;
+  const clampLevel = (id: string, def: (typeof UPGRADE_DEFS)[number]): number => {
+    const raw = levels[id];
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return 0;
+    return Math.min(Math.max(Math.trunc(raw), 0), def.maxLevel);
+  };
+
+  const speedLv = clampLevel('speed', UPGRADE_DEFS[0]);
+  const fireLv = clampLevel('fire_rate', UPGRADE_DEFS[1]);
+  const fuelLv = clampLevel('fuel_efficiency', UPGRADE_DEFS[2]);
+  const shieldLv = clampLevel('shield_duration', UPGRADE_DEFS[3]);
 
   stats.speed = 340 * (1 + speedLv * 0.08);
   stats.fireCooldown = Math.max(0.14, 0.26 - fireLv * 0.024);

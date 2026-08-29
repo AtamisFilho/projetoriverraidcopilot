@@ -122,6 +122,13 @@ prisma/schema.prisma          # modelo Score (ranking global)
 ## ✅ Qualidade
 
 - **Lint limpo** (`bun run lint`).
+- **Suíte de testes automatizada** — `bun test` (230 testes em 7 arquivos,
+  ~1,7 s): validação da API de ranking (branches 400/429/500), saves
+  corrompidos/adulterados, invariantes do rio procedural, gatilhos de
+  chefe, respawn/game over, upgrades e missões — incluindo harness
+  headless que roda o motor completo (canvas stubado) fora do navegador.
+  Detalhes da caçada (3 rounds de "escrever teste → corrigir"):
+  [docs/REVISAO-ADVERSARIAL.md](docs/REVISAO-ADVERSARIAL.md).
 - **Testes E2E de navegador** (agent-browser): fluxo completo verificado —
   menu → intro de capítulo → gameplay (movimento, tiro, combustível, margens,
   inimigos) → destruição de ponte → avanço de fase → checkpoint → luta de chefe

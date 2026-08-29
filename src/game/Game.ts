@@ -373,7 +373,14 @@ export class Game {
     const level = this.profile.upgrades[id] ?? 0;
     if (level >= def.maxLevel) return false;
     const cost = upgradeCost(def, level);
-    if (this.profile.credits < cost) return false;
+    // Number.isFinite: credits NaN adulterado não deve permitir compra
+    // (NaN < cost é sempre false e liberava upgrade grátis)
+    if (
+      !Number.isFinite(this.profile.credits) ||
+      this.profile.credits < cost
+    ) {
+      return false;
+    }
     this.profile.credits -= cost;
     this.profile.upgrades[id] = level + 1;
     this.save.saveProfile(this.profile);
@@ -630,12 +637,11 @@ export class Game {
       this.nextDepotY += 2300 + Math.random() * 700 + this.stage * 25;
     }
 
-    // Power-ups
+    // Power-ups (spawnXAt evita nascer em cima de ilha — coletável
+    // sobre a terra seria uma armadilha injusta)
     if (this.scrollY + this.H + 120 > this.nextPowerupY) {
-      const shape = this.river.shapeAt(this.nextPowerupY);
       const x =
-        shape.left * this.W +
-        Math.random() * (shape.right - shape.left) * this.W;
+        this.river.spawnXAt(this.nextPowerupY, 0.05, Math.random) * this.W;
       const kinds = ['shield', 'triple', 'homing', 'turbo'] as const;
       this.pickups.spawnPowerUp(
         kinds[Math.floor(Math.random() * kinds.length)],
@@ -678,12 +684,24 @@ export class Game {
   private spawnDepotAt(worldY: number): void {
     const shape = this.river.shapeAt(worldY);
     if (shape.isLake) {
-      // Área secreta: cluster de bônus
-      const cx = ((shape.left + shape.right) / 2) * this.W;
-      const spread = Math.min((shape.right - shape.left) * this.W * 0.3, 130);
-      this.pickups.spawnDepot('normal', cx - spread, worldY - 60);
-      this.pickups.spawnDepot('rare', cx, worldY);
-      this.pickups.spawnDepot('normal', cx + spread, worldY + 60);
+      // Área secreta: cluster de bônus. Cada posição usa spawnXAt (que
+      // evita ilhas) — o cálculo geométrico puro (cx ± spread) podia
+      // cair em cima de uma ilha nascente nas bordas do lago.
+      this.pickups.spawnDepot(
+        'normal',
+        this.river.spawnXAt(worldY - 60, 0.05, Math.random) * this.W,
+        worldY - 60
+      );
+      this.pickups.spawnDepot(
+        'rare',
+        this.river.spawnXAt(worldY, 0.05, Math.random) * this.W,
+        worldY
+      );
+      this.pickups.spawnDepot(
+        'normal',
+        this.river.spawnXAt(worldY + 60, 0.05, Math.random) * this.W,
+        worldY + 60
+      );
       return;
     }
     const roll = Math.random();
@@ -1123,12 +1141,21 @@ export class Game {
   }
 
   private finishGameOver(): void {
-    const creditsEarned = Math.floor(this.score.points / 50);
-    this.profile.credits += creditsEarned;
-    this.profile.bestScore = Math.max(this.profile.bestScore, this.score.points);
+    // Defesa em profundidade: um score NaN (corrupção em runtime) não
+    // pode contaminar bestScore/credits/localScores — NaN propagaria
+    // para o profile e ocorreria para sempre (Math.max(x, NaN) = NaN).
+    const finalPoints =
+      Number.isFinite(this.score.points) && this.score.points > 0
+        ? Math.floor(this.score.points)
+        : 0;
+    const creditsEarned = Math.floor(finalPoints / 50);
+    this.profile.credits = Number.isFinite(this.profile.credits)
+      ? this.profile.credits + creditsEarned
+      : creditsEarned;
+    this.profile.bestScore = Math.max(this.profile.bestScore, finalPoints);
     this.profile.localScores.unshift({
       name: 'Piloto',
-      score: this.score.points,
+      score: finalPoints,
       stage: this.stage,
       date: new Date().toISOString(),
     });
@@ -1138,7 +1165,7 @@ export class Game {
     this.save.saveProfile(this.profile);
     this.save.clearRun();
     this.lastRun = {
-      score: this.score.points,
+      score: finalPoints,
       stage: this.stage,
       credits: creditsEarned,
       kills: this.kills,

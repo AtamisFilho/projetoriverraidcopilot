@@ -46,9 +46,11 @@ yarn-error.log*
 /Caddyfile
 /.zscripts/
 /examples/
-/tests/
 /mini-services/
 /worklog.md
+
+# scripts de tooling do ambiente que porventura estejam em tests/
+tests/*.sh
 
 
 # typescript

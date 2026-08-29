@@ -45,6 +45,7 @@ export class AudioEngine {
   private nextNoteTime = 0;
   private step = 0;
   private tempo = 104;
+  private stageTempo = 104; // andamento base da fase atual
   private bossMode = false;
   private musicOn = false;
 
@@ -93,12 +94,17 @@ export class AudioEngine {
 
   /** Ajusta a trilha conforme a fase (andamento crescente). */
   setStage(stage: number): void {
-    this.tempo = Math.min(104 + (stage - 1) * 6, 184);
+    this.stageTempo = Math.min(104 + (stage - 1) * 6, 184);
+    this.tempo = this.bossMode
+      ? Math.max(this.stageTempo, 150)
+      : this.stageTempo;
   }
 
   setBossMode(on: boolean): void {
     this.bossMode = on;
-    this.tempo = on ? Math.max(this.tempo, 150) : this.tempo;
+    // Ao SAIR do modo chefe, restaura o andamento da fase atual
+    // (antes o tempo 150 "vazava" para o jogo normal até a próxima fase)
+    this.tempo = on ? Math.max(this.stageTempo, 150) : this.stageTempo;
   }
 
   startMusic(): void {

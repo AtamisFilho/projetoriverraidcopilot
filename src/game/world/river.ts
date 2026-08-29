@@ -19,6 +19,15 @@ import { bridgeYFor, isBossStage, stageStartY } from '../systems/stages';
 
 const NODE_STEP = 420;
 
+/**
+ * Teto de geração: alinhado ao limite de fase do save validado (999).
+ * stageStartY(1000) ≈ 255M px ≈ 6,6 dias de voo contínuo a 450 px/s —
+ * além disso o rio congela na última forma em vez de gerar nós até o
+ * infinito (shapeAt(1e12) tentava criar 2,4 BILHÕES de nós → travar a aba).
+ */
+const MAX_STAGE = 999;
+const MAX_GENERATE_Y = stageStartY(MAX_STAGE + 1);
+
 interface RiverNode {
   y: number;
   center: number; // 0..1
@@ -73,9 +82,10 @@ export class River {
     this.ensure(startY + 2600);
   }
 
-  /** Gera nós até cobrir a coordenada pedida. */
+  /** Gera nós até cobrir a coordenada pedida (com teto defensivo). */
   ensure(untilY: number): void {
-    while (this.lastNodeY < untilY) {
+    const target = Math.min(untilY, MAX_GENERATE_Y);
+    while (this.lastNodeY < target) {
       const y = this.lastNodeY + NODE_STEP;
       const stage = this.stageAt(y);
 
@@ -100,7 +110,11 @@ export class River {
       if (y > this.nextLakeAt) {
         this.pushLakeRun(y);
         this.nextLakeAt = y + randRange(this.rng, 9000, 15000);
-        this.lastNodeY = y;
+        // NOTA: pushLakeRun já avança lastNodeY até o fim do trecho.
+        // Regredir aqui (lastNodeY = y) fazia o loop regerar nós POR CIMA
+        // do lago — duplicando nós e quebrando a ordenação exigida pela
+        // busca binária do nodeIndexAt (shapeAt instável, spawns fora
+        // do rio, rio "pulsando" entre frames).
         continue;
       }
 
@@ -108,7 +122,7 @@ export class River {
       if (y > this.nextIslandAt) {
         this.pushIslandRun(y);
         this.nextIslandAt = y + randRange(this.rng, 5200, 9800);
-        this.lastNodeY = y;
+        // idem: pushIslandRun já avançou lastNodeY
         continue;
       }
 
@@ -187,9 +201,11 @@ export class River {
   }
 
   private stageAt(worldY: number): number {
-    // Busca reversa fechada: stageStartY é crescente
+    // Busca reversa fechada: stageStartY é crescente.
+    // Cap defensivo: um worldY patológico (save adulterado) não pode
+    // transformar isto num loop de trilhões de iterações.
     let stage = 1;
-    while (stageStartY(stage + 1) <= worldY) stage++;
+    while (stage < MAX_STAGE && stageStartY(stage + 1) <= worldY) stage++;
     return stage;
   }
 
@@ -219,9 +235,15 @@ export class River {
       lerp(a.islandHalf, b.islandHalf, t)
     );
     const isLake = t < 0.5 ? a.lake : b.lake;
+    // O contrato é "limites normalizados (0..1)": center clamped em
+    // [0.32, 0.68] com halfWidth até 0.395 podia produzir left < 0
+    // (rio "saindo" da tela). Clampa aqui — todos os consumidores
+    // (colisão, spawn, render) confiam nessa faixa.
+    const left = Math.max(0, center - halfWidth);
+    const right = Math.min(1, center + halfWidth);
     return {
-      left: center - halfWidth,
-      right: center + halfWidth,
+      left,
+      right,
       islandLeft: center - islandHalf,
       islandRight: center + islandHalf,
       hasIsland: islandHalf > 0.02,
@@ -244,7 +266,12 @@ export class River {
         (c) => c[1] - c[0] > 0.04
       );
       if (channels.length > 0) {
-        const c = channels[Math.floor(rng() * channels.length)];
+        // rng() === 1 (stub adulterado) não pode gerar índice fora da lista
+        const idx = Math.min(
+          channels.length - 1,
+          Math.floor(rng() * channels.length)
+        );
+        const c = channels[idx];
         return randRange(rng, c[0], c[1]);
       }
     }

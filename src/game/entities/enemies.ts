@@ -130,8 +130,21 @@ export class Enemy {
         this.x += this.vx * ctx.speedMultiplier * dt;
         const shape = ctx.shapeAt(this.worldY);
         const center = (shape.left + shape.right) / 2;
-        const lo = this.x / W < center ? shape.left : shape.hasIsland ? shape.islandLeft : shape.left;
-        const hi = this.x / W < center ? (shape.hasIsland ? shape.islandRight : shape.right) : shape.right;
+        // Barco fica no canal em que está: à esquerda do centro quica em
+        // [left, islandLeft]; à direita, em [islandRight, right].
+        // (Antes o intervalo cruzava a ilha e o barco "navegava" por
+        // cima da terra.)
+        const inLeft = this.x / W < center;
+        const lo = inLeft
+          ? shape.left
+          : shape.hasIsland
+            ? shape.islandRight
+            : shape.left;
+        const hi = inLeft
+          ? shape.hasIsland
+            ? shape.islandLeft
+            : shape.right
+          : shape.right;
         if (this.x / W < lo + 0.02) this.vx = Math.abs(this.vx);
         if (this.x / W > hi - 0.02) this.vx = -Math.abs(this.vx);
         break;

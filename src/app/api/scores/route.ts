@@ -1,14 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/lib/db';
+import { RateLimiter, sanitizeLimit, clientIpFrom } from '@/lib/api-helpers';
 
 /**
  * Ranking global do River Raid Remaster.
- * GET  /api/scores        → top 10
+ * GET  /api/scores        → top N (limit 1..50, sanitizado)
  * POST /api/scores        → registra pontuação e devolve a posição
  *
  * Implementa o "sistema de ranking global" pedido na especificação (PDF),
  * que não existia no código original.
+ *
+ * Endurecimento (revisão adversarial):
+ *  - `limit` não-inteiro (ex.: ?limit=2.5) era repassado ao Prisma e
+ *    derrubava a rota com 500 → agora é truncado antes da consulta;
+ *  - corpo não-JSON devolvia 500 (erro de servidor) → agora 400;
+ *  - o rate-limit consome o slot em TODA tentativa, inclusive inválida
+ *    (spam de payloads lixos também é travado);
+ *  - o mapa do rate-limit poda entradas antigas e se reinicia sob
+ *    inundação de IPs forjados via `x-forwarded-for` (anti-OOM).
  */
 
 const MAX_SCORES = 100;
@@ -24,13 +34,12 @@ const scoreSchema = z.object({
   kills: z.number().int().min(0).max(100_000).default(0),
 });
 
-// Rate-limit simples em memória (por IP): 1 envio a cada 5 s
-const lastSubmit = new Map<string, number>();
+// Rate-limit em memória (por IP): 1 envio a cada 5 s
+const rateLimiter = new RateLimiter(5000, 1024);
 
 export async function GET(req: NextRequest) {
   try {
-    const limitParam = req.nextUrl.searchParams.get('limit');
-    const limit = Math.min(Math.max(Number(limitParam) || 10, 1), 50);
+    const limit = sanitizeLimit(req.nextUrl.searchParams.get('limit'));
     const scores = await db.score.findMany({
       orderBy: [{ score: 'desc' }, { createdAt: 'asc' }],
       take: limit,
@@ -53,19 +62,27 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = clientIpFrom(req.headers.get('x-forwarded-for'));
+  const now = Date.now();
+  if (!rateLimiter.tryAcquire(ip, now)) {
+    return NextResponse.json(
+      { error: 'Aguarde alguns segundos antes de enviar novamente.' },
+      { status: 429 }
+    );
+  }
+
   try {
-    const ip =
-      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local';
-    const now = Date.now();
-    const last = lastSubmit.get(ip) ?? 0;
-    if (now - last < 5000) {
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      // JSON malformado é erro do cliente, não do servidor
       return NextResponse.json(
-        { error: 'Aguarde alguns segundos antes de enviar novamente.' },
-        { status: 429 }
+        { error: 'Corpo da requisição deve ser JSON válido.' },
+        { status: 400 }
       );
     }
 
-    const body = await req.json();
     const parsed = scoreSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
@@ -76,7 +93,6 @@ export async function POST(req: NextRequest) {
 
     const { name, score, stage, kills } = parsed.data;
     await db.score.create({ data: { name, score, stage, kills } });
-    lastSubmit.set(ip, now);
 
     // Poda: mantém apenas as MAX_SCORES melhores
     const total = await db.score.count();

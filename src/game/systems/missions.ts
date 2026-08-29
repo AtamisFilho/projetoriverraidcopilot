@@ -80,8 +80,16 @@ export class MissionSystem {
   progress(id: string, amount = 1): void {
     const m = this.list.find((x) => x.id === id);
     if (!m || m.completed) return;
-    m.progress = Math.min(m.goal, m.progress + amount);
-    if (m.progress >= m.goal) m.completed = true;
+    const next = m.progress + amount;
+    m.progress = Math.min(m.goal, next);
+    // Tolerância numérica: a soma FP de 0,01×6000 estaciona em
+    // 59,99999999999663 (o incremento arredonda para baixo no double) —
+    // sem o épsilon a missão "sobreviva 60s" nunca completaria.
+    const EPS = 1e-6;
+    if (m.progress >= m.goal - EPS || next >= m.goal - EPS) {
+      m.progress = m.goal;
+      m.completed = true;
+    }
   }
 
   /** Missão de combo chega instantaneamente ao alvo. */
@@ -127,11 +135,26 @@ export class MissionSystem {
   }
 
   restore(data: { id: string; progress: number; completed: boolean; rewardGiven: boolean }[]): void {
+    // Defesa: dados restaurados podem vir corrompidos/adulterados
+    if (!Array.isArray(data)) return;
     for (const saved of data) {
+      if (typeof saved !== 'object' || saved === null) continue;
+      if (
+        typeof saved.id !== 'string' ||
+        typeof saved.progress !== 'number' ||
+        !Number.isFinite(saved.progress) ||
+        saved.progress < 0 ||
+        typeof saved.completed !== 'boolean' ||
+        typeof saved.rewardGiven !== 'boolean'
+      ) {
+        continue; // entrada inválida: ignora sem corromper o restante
+      }
       const m = this.list.find((x) => x.id === saved.id);
       if (m) {
-        m.progress = saved.progress;
-        m.completed = saved.completed;
+        m.progress = Math.min(m.goal, saved.progress);
+        // progress já no objetivo ⇒ concluída (dados adulterados com
+        // progress=goal e completed=false não podem travar a missão)
+        m.completed = saved.completed || m.progress >= m.goal;
         m.rewardGiven = saved.rewardGiven;
       }
     }

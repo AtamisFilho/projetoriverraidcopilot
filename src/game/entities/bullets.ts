@@ -99,7 +99,8 @@ export class EnemyBulletSystem {
   list: EnemyBullet[] = [];
 
   shoot(x: number, y: number, vx: number, vy: number): void {
-    if (this.list.length > 90) return;
+    // >= (não >): o teto era 91 por causa de um off-by-one
+    if (this.list.length >= 90) return;
     this.list.push({ x, y, vx, vy, active: true });
   }
 

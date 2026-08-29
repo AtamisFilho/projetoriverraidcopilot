@@ -3,6 +3,8 @@
  */
 
 export function clamp(v: number, min: number, max: number): number {
+  // NaN propagaria por toda a física — retorna o limite inferior
+  if (Number.isNaN(v)) return min;
   return v < min ? min : v > max ? max : v;
 }
 
@@ -38,7 +40,9 @@ export function randRange(rng: () => number, min: number, max: number): number {
 }
 
 export function pick<T>(rng: () => number, arr: readonly T[]): T {
-  return arr[Math.floor(rng() * arr.length)];
+  // rng() === 1 (fora do contrato [0,1)) não deve ler fora do array
+  const idx = Math.min(arr.length - 1, Math.floor(rng() * arr.length));
+  return arr[idx];
 }
 
 export function formatScore(n: number): string {
