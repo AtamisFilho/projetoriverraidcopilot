@@ -58,3 +58,46 @@ Stage Summary:
 - Repositório reunificado com todo o histórico preservado (jogo original, análise, revisão adversarial, remaster e correções atuais) e README documentando tudo
 - Screenshots de evidência: /tmp/rr3-gameplay-fixed*.png, /tmp/rr3-critical.png, /tmp/rr3-mobile.png, /tmp/rr3-final.png
 - Recomendação ao usuário: revogar o PAT exposto no chat (github.com/settings/tokens) e gerar um novo
+
+---
+Task ID: 3
+Agent: general-purpose (documentação Android)
+Task: Redigir docs/ANDROID.md e atualizar README.md com a seção Android
+
+Work Log:
+- Lido o worklog.md, o README.md e o código-fonte relevante para verificar os fatos antes de escrever: package.json (scripts build:www/build:apk, versão 2.1.0), android/build-apk.sh (pipeline, pré-requisitos, VERSION_NAME/VERSION_CODE, APK_KEYSTORE), AndroidManifest.xml, MainActivity.java, mobile/{main.tsx,index.html,tailwind.css,build-www.mjs}, VirtualControls.tsx (chave rr-controls-v1, longo-toque 450 ms, tamanhos 128/84/68 px), engine.ts (EMP: empStart 2/empMax 3/dano 3/chefe 12/cooldown 0,6 s, teclas K/L, gamepad botões 1/4/5, edge-latch), mensagens offline em RankingPanel/GameOverScreen, botão REDEFINIR CONTROLES DE TOQUE em GameScreen, .gitignore e res/ (strings, temas, mipmaps)
+- Criado docs/ANDROID.md (~380 linhas, PT-BR) cobrindo: visão geral (tabela de identidade do APK, offline-first), download e instalação (Release v2.1.0 + passos de fontes desconhecidas + adb install -r), controles de toque (tabela joystick/TIRO/GATILHO, arrastar-e-soltar com persistência, EMP completo, dica ?touch=1), compilação do zero (pré-requisitos com comandos exatos: apt openjdk, cmdline-tools+sdkmanager, curl do ecj 3.36.0, bun install; usos do script e saída esperada), funcionamento do build sem Gradle (diagrama ASCII do pipeline esbuild→tailwind→aapt2→ecj→d8→zip→zipalign→apksigner + justificativa), estrutura dos diretórios mobile/ e android/ com explicações linha a linha, comportamentos do MainActivity, assinatura (debug.keystore automático, APK_KEYSTORE, credenciais fixas do script, exigência de keystore de release para Play Store), atualização de versão (os 3 arquivos: build-apk.sh/AndroidManifest/package.json), comportamento offline (mensagem exata do ranking), limitações conhecidas, tabela de solução de problemas (8 sintomas) e verificações E2E realizadas
+- Atualizado README.md com edições cirúrgicas mantendo o estilo existente: nova seção "📱 Android (APK)" logo após a introdução (download da Release v2.1.0, resumo de instalação, controles arrastáveis + EMP, link para docs/ANDROID.md); item novo "Pulso EMP (gatilho)" na seção Gameplay; linha "Controles" reescrita (K/L = pulso EMP no teclado, GATILHO no toque, gamepad B/R1/R2 preservado); nota de ranking indisponível no APK offline; entrada de docs/ANDROID.md na seção Documentação; "APK Android (WebView, build sem Gradle)" acrescentado à Stack; bloco "Gerando o APK Android" na seção Rodando com bun run build:apk; estrutura de diretórios ampliada com mobile/ e android/ e correção TouchControls.tsx → VirtualControls.tsx
+- Nenhum build/execução realizado (tarefa apenas de documentação); nenhum outro arquivo tocado; nada commitado
+
+Stage Summary:
+- docs/ANDROID.md criado: guia técnico completo do APK (instalação, controles de toque e EMP, compilação sem Gradle com comandos exatos de pré-requisitos, pipeline explicado, assinatura, versionamento, limitações, troubleshooting e E2E)
+- README.md atualizado: seção Android em destaque no topo + EMP e controles de toque documentados em Gameplay + estrutura (mobile/, android/, VirtualControls.tsx) + Rodando com build:apk + Documentação e Stack refletindo o Android
+- Todos os fatos do documento foram verificados diretamente no código-fonte (constantes do EMP, chaves de localStorage, credenciais do keystore, flags do aapt2, URLs da Release v2.1.0)
+
+---
+Task ID: 4
+Agent: Z.ai Code (agente principal)
+Task: Empacotar o jogo como .APK para Android (celulares e tablets), com joystick digital na parte inferior + botões de tiro e gatilho reposicionáveis por drag-and-drop; publicar release no repositório e promover a documentação.
+
+Work Log:
+- Reconhecimento: tarefas anteriores (sentido de voo, medidor compacto, revisão adversarial, reunificação de históricos) já concluídas no HEAD 7417e37; toolchain verificada (Java 21 JRE sem javac, sem Android SDK, internet OK)
+- Motor — pulso EMP (o "gatilho"): TouchInput.special; cargas 2/3 (recarga +1 por chefe derrotado); fireEmp() com anel de choque, dissipação de TODOS os projéteis inimigos, 3 de dano por inimigo em cena e 12 no chefe; cooldown 0,6 s; entrada por teclas K/L, gamepad B/R1/R2 e toque; latch de borda no setTouch garante disparo em toques mais curtos que 1 tick (bug encontrado no E2E: down+up no mesmo tick não atravessava nenhum update a 120 Hz); HudState.emp + chip EMP ×N no HUD
+- VirtualControls.tsx (substitui TouchControls.tsx): joystick digital de 8 direções (quantização por limiares com knob que encaixa na direção ativa), botão TIRO (dispara no pointerdown), botão GATILHO (EMP, badge de cargas, estado desabilitado visual em 0); reposicionamento por longo-toque 450 ms + arrasto com clamp na área, posições normalizadas 0..1 persistidas em localStorage (rr-controls-v1), vibração leve, dica de primeira vez, evento global rr-reset-controls acionado pelo botão REDEFINIR CONTROLES DE TOQUE do menu de pausa; setPointerCapture blindado (safeCapture) para ponteiros sintéticos/encerrados; controles ocultos durante a pausa; ?touch=1 força exibição para teste em desktop
+- GameScreen: chip EMP, textos de ajuda atualizados, botão de reset na pausa; MenuScreen: cartão TOQUE reescrito; RankingPanel/GameOverScreen: mensagens amigáveis quando o ranking está indisponível (APK file:// vs web sem conexão)
+- Bundle mobile autossuficiente: mobile/main.tsx (entry React puro), mobile/index.html (viewport, overlay de erro fatal), mobile/tailwind.css (Tailwind v4 + @source dos fontes + tokens/copiado do globals.css), mobile/build-www.mjs (esbuild → app.js 340 KB IIFE minificado + @tailwindcss/cli → app.css 63 KB) — sem Next.js, sem next/font
+- Projeto Android (android/): MainActivity WebView (imersivo sticky, KEEP_SCREEN_ON, DOM storage, sem gesto para áudio, voltar = pausa via evaluateJavascript em __rrGame, onPause/onResume congelam a WebView, destroy limpo), manifest (com.atamisfilho.riverraid, minSdk 21/targetSdk 34, só VIBRATE — 100% offline), Theme.Material.NoActionBar fullscreen, ícone gerado por IA (image-generation) e escalado com ffmpeg para mdpi→xxxhdpi
+- Toolchain Android instalada no sandbox: cmdline-tools + platforms;android-34 + build-tools;34.0.0 (sdkmanager), ecj 3.36.0 (compilador Java que roda em JRE — sem javac); downloads em background falharam 2× (processos órfãos mortos entre comandos), concluído em foreground
+- build-apk.sh — pipeline completo SEM Gradle: aapt2 compile+link (-A no diretório pai de assets para os arquivos caírem em assets/www/ — bug de path encontrado e corrigido na 1ª build), ecj, d8 (min-api 21), zip classes.dex, zipalign -f 4, keytool gera debug.keystore se ausente, apksigner assina v1+v2 e verifica; APK final: 276 KB, badging correto
+- E2E (agent-browser): desktop — EMP consumiu 2→1, dano exato no chefe 60→48 (−12), ebullets zerados, chefe derrotado por EMP → capítulo 2 + recarga 0→1; mobile 390×844 com ?touch=1 — joystick com 8 direções (incl. diagonais) lidas direto do touch do engine, botão TIRO dispara no down e solta no up, drag-and-drop move o botão de (83%,82%) para (49,7%,59,5%) e persiste no localStorage sobrevivendo a reload, reset restaura padrão; bundle file:// (como o WebView) — menu completo, jogo rodando, controles touch, mensagem offline do ranking; VLM confirmou renderização limpa (joystick c/ knob, TIRO vermelho, GATILHO azul c/ badge ×2, HUD íntegro, rio animado)
+- Limitação registrada: agent-browser não emula pointer:coarse (controles testados via ?touch=1); APK não instalável no sandbox (sem emulador) — estrutura e assinatura verificadas (unzip -l, apksigner verify, aapt2 dump badging, download do release com MD5 idêntico)
+- Documentação delegada a subagente (Task ID 3): docs/ANDROID.md (392 linhas) + README atualizado (seção 📱 Android, EMP em Gameplay, estrutura mobile//android/, build:apk)
+- Publicação: push 7417e37..9f61986; Release v2.1.0 criada via API com APK anexado (279.555 bytes) — https://github.com/AtamisFilho/projetoriverraidcopilot/releases/tag/v2.1.0
+
+Stage Summary:
+- APK assinado e publicável: android/dist/river-raid-remaster-2.1.0.apk (276 KB, minSdk 21, 100% offline, só permissão VIBRATE) — anexado à Release v2.1.0 com verificação de integridade do download
+- Controles de toque novos: joystick digital 8 direções + TIRO + GATILHO (EMP), todos reposicionáveis por arrastar-e-soltar com persistência e reset — verificados ponta a ponta com eventos de ponteiro reais
+- Novo recurso de gameplay: pulso EMP com cargas, recarga por chefe e latch de borda (funciona até em toques ultra-rápidos)
+- Build reproduzível documentado: bun run build:apk (esbuild+tailwind+aapt2+ecj+d8+zipalign+apksigner, sem Gradle e sem javac)
+- tsc --noEmit e eslint 100% limpos; dev.log sem erros; screenshots de evidência /tmp/rr4-*.png
+- Recomendação mantida: revogar o PAT exposto no chat

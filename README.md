@@ -3,6 +3,23 @@
 Remasterização do clássico **River Raid** (Activision, 1982) como web app moderno,
 construído com Next.js 16 + Canvas 2D em alta resolução.
 
+## 📱 Android (APK)
+
+O jogo também roda **100% offline** no Android, empacotado como um APK nativo
+ultraleve (~276 KB) — um invólucro mínimo de WebView, compilado **sem Gradle e
+sem AndroidX**, direto com as ferramentas do Android SDK.
+
+- **Download**:
+  [`river-raid-remaster-2.1.0.apk`](https://github.com/AtamisFilho/projetoriverraidcopilot/releases/download/v2.1.0/river-raid-remaster-2.1.0.apk)
+  (Release [v2.1.0](https://github.com/AtamisFilho/projetoriverraidcopilot/releases/tag/v2.1.0))
+- **Instalação**: baixe no celular, toque no arquivo e autorize "instalar apps de
+  fontes desconhecidas" — sem internet e sem permissões além da vibração
+- **Controles de toque**: joystick digital de 8 direções + botões **TIRO** e
+  **GATILHO** (pulso EMP), todos **arrastáveis** — segure ~0,45 s e arraste para
+  reposicionar; as posições ficam salvas no aparelho
+- **Compilar do zero**: `bun run build:apk` — guia completo em
+  [`docs/ANDROID.md`](docs/ANDROID.md)
+
 ## Destaques desta versão (Remaster HD)
 
 1. **Gráficos significativamente melhorados e resolução atualizada**
@@ -45,10 +62,17 @@ construído com Next.js 16 + Canvas 2D em alta resolução.
   e modo infinito após a vitória
 - 8 tipos de inimigo com IA distinta (zigue-zague, perseguição, torres que miram, furtivo…)
 - Power-ups, combustível raro, armadilhas explosivas, combo de abates (até ×4)
-- Controles: teclado (setas/WASD + Espaço + P), **joystick via Gamepad API** e toque
+- **Pulso EMP (gatilho)**: onda de choque que limpa as balas inimigas e causa 3
+  de dano a todos os inimigos em tela (12 no chefe) — começa com 2 cargas
+  (máx. 3), recarrega ao derrotar um chefe e aparece no HUD como chip "EMP ×N"
+- Controles: teclado (setas/WASD + Espaço + **K/L = pulso EMP** + P), **gamepad
+  via Gamepad API** (B/R1/R2 disparam o EMP) e **controles de toque arrastáveis**
+  (joystick digital de 8 direções, botões TIRO e GATILHO/EMP — reposicionáveis
+  com arrastar-e-soltar, persistentes no `localStorage`)
 - Áudio 100% sintetizado (WebAudio): motor, tiros, explosões, trilha dinâmica e alertas
 - Ranking global persistido em SQLite (Prisma) via `/api/scores`, com rate-limit
   por IP e validação rigorosa (endurecimento portado da revisão adversarial)
+  — disponível na versão web; no APK offline o ranking exibe mensagem amigável
 
 ## Documentação
 
@@ -57,12 +81,15 @@ construído com Next.js 16 + Canvas 2D em alta resolução.
 - [`docs/REVISAO-ADVERSARIAL.md`](docs/REVISAO-ADVERSARIAL.md) — revisão adversarial estilo
   PR dos primeiros commits, com as 21 correções e a suíte de 230 testes (estes documentos
   referem-se à primeira implementação, `src/game/*`, preservada no histórico em `3fbfe85`)
+- [`docs/ANDROID.md`](docs/ANDROID.md) — guia do APK Android: download e instalação,
+  controles de toque, compilação sem Gradle, assinatura e solução de problemas
 - `worklog.md` — registro de trabalho das sessões de desenvolvimento
 
 ## Stack
 
 Next.js 16 (App Router) · TypeScript · Tailwind CSS 4 · Canvas 2D HiDPI ·
-Prisma + SQLite · WebAudio API · Gamepad API
+Prisma + SQLite · WebAudio API · Gamepad API · APK Android (WebView, build
+sem Gradle)
 
 ## Rodando
 
@@ -71,6 +98,15 @@ bun install
 bunx prisma db push   # cria o banco db/custom.db
 bun run dev           # http://localhost:3000
 ```
+
+Gerando o APK Android (offline):
+
+```bash
+bun run build:apk     # bundle web (esbuild+tailwind) + APK assinado em android/dist/
+```
+
+Pré-requisitos do APK (JDK, Android SDK, ecj) e detalhes em
+[`docs/ANDROID.md`](docs/ANDROID.md).
 
 ## Estrutura
 
@@ -87,7 +123,7 @@ src/
 │   ├── BriefingSection.tsx   # apresentação de inimigos/obstáculos/itens
 │   ├── SpritePreview.tsx     # mini-canvas com sprite real do jogo
 │   ├── MenuScreen.tsx · GameOverScreen.tsx · RankingPanel.tsx
-│   └── TouchControls.tsx     # controles móveis (pointer coarse)
+│   └── VirtualControls.tsx   # controles de toque arrastáveis (joystick + TIRO + GATILHO)
 └── lib/
     ├── api-helpers.ts        # rate-limit, sanitização de limit, IP do cliente
     └── game/
@@ -96,6 +132,20 @@ src/
         ├── audio.ts          # sintetizador WebAudio
         ├── content.ts        # bestiário (dados compartilhados jogo+briefing)
         └── types.ts          # tipos e constantes
+
+mobile/                        # bundle web autossuficiente para o APK (sem Next.js)
+├── main.tsx                   # entry React que monta o GameShell
+├── index.html                 # host: viewport, fundo escuro, overlay de erro fatal
+├── tailwind.css               # Tailwind v4 (@source escaneia src/) + tokens visuais
+└── build-www.mjs              # esbuild + tailwind CLI → android/…/assets/www
+
+android/                       # invólucro nativo WebView (sem Gradle/AndroidX)
+├── build-apk.sh               # pipeline: aapt2 → ecj → d8 → zip → zipalign → apksigner
+└── app/src/main/
+    ├── AndroidManifest.xml    # pacote, VIBRATE (única permissão), portrait
+    ├── java/…/MainActivity.java  # WebView: imersivo, back-pausa, freeze em onPause
+    ├── res/                   # strings, tema fullscreen, ícones (5 densidades)
+    └── assets/www/            # bundle web gerado em build (gitignored)
 ```
 
 > Remasterização educacional, sem fins comerciais. River Raid é marca da Activision.
