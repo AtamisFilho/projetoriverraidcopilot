@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.15 0.02 250);
+  --foreground: oklch(0.96 0.01 250);
+  --card: oklch(0.19 0.025 250);
+  --card-foreground: oklch(0.96 0.01 250);
+  --popover: oklch(0.19 0.025 250);
+  --popover-foreground: oklch(0.96 0.01 250);
+  --primary: oklch(0.72 0.17 145);
+  --primary-foreground: oklch(0.15 0.03 145);
+  --secondary: oklch(0.26 0.03 250);
+  --secondary-foreground: oklch(0.96 0.01 250);
+  --muted: oklch(0.26 0.02 250);
+  --muted-foreground: oklch(0.68 0.02 250);
+  --accent: oklch(0.75 0.16 85);
+  --accent-foreground: oklch(0.16 0.03 85);
+  --destructive: oklch(0.62 0.22 25);
+  --destructive-foreground: oklch(0.98 0.01 25);
+  --border: oklch(0.30 0.03 250);
+  --input: oklch(0.30 0.03 250);
+  --ring: oklch(0.72 0.17 145);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
+    overscroll-behavior: none;
+  }
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Custom scrollbar for long lists */
+.nice-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.nice-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.nice-scroll::-webkit-scrollbar-thumb {
+  background: oklch(0.35 0.03 250);
+  border-radius: 999px;
+}
+.nice-scroll::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.45 0.04 250);
+}
+
+/* Critical fuel alert animations */
+@keyframes fuel-critical {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7), inset 0 0 18px rgba(239, 68, 68, 0.35);
+    border-color: rgba(239, 68, 68, 0.95);
+  }
+  50% {
+    box-shadow: 0 0 26px 6px rgba(239, 68, 68, 0.45), inset 0 0 26px rgba(239, 68, 68, 0.6);
+    border-color: rgba(255, 120, 120, 1);
+  }
+}
+.fuel-critical {
+  animation: fuel-critical 0.7s ease-in-out infinite;
+}
+
+@keyframes banner-flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.banner-flash {
+  animation: banner-flash 0.55s step-end infinite;
+}
+
+@keyframes float-ship {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-6px) rotate(1deg); }
+}
+.float-ship {
+  animation: float-ship 3.2s ease-in-out infinite;
+}
+
+/* Radar sweep in briefing */
+@keyframes radar-sweep {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.radar-sweep {
+  animation: radar-sweep 4s linear infinite;
+  transform-origin: center;
+}
