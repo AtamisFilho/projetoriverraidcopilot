@@ -337,6 +337,33 @@ export class RiverRaidGame {
     this.fuel = clamp(v, 0, 100);
   }
 
+  /* ---------------------- coordenadas mundo ↔ tela ----------------------
+   * O jato voa para CIMA na tela; o mundo flui de cima para baixo.
+   * Convenção: worldY CRESCE na direção do voo (para cima na tela).
+   *   tela y = scroll + VH − worldY   (worldY maior = mais à frente/acima)
+   * A câmera avança com `scroll`; conteúdo novo entra pela borda superior.
+   * -------------------------------------------------------------------- */
+
+  /** worldY → Y de tela */
+  private sy(worldY: number): number {
+    return this.scroll + VH - worldY;
+  }
+
+  /** Y de tela → worldY */
+  private wy(screenY: number): number {
+    return this.scroll + VH - screenY;
+  }
+
+  /** Posição do jogador no mundo (playerY é fixo em tela) */
+  private get playerWY(): number {
+    return this.scroll + VH - G.playerY;
+  }
+
+  /** Posição do chefe no mundo (boss.y é coordenada de tela) */
+  private get bossWY(): number {
+    return this.scroll + VH - (this.boss?.y ?? 0);
+  }
+
   /* --------------------------- ciclo de vida --------------------------- */
 
   start() {
@@ -576,7 +603,7 @@ export class RiverRaidGame {
 
     // atualiza entidades
     this.updateEnemies(dt);
-    this.updatePickups(dt);
+    this.updatePickups();
     this.updateBullets(dt);
     this.updateEBullets(dt);
     this.updateBoss(dt);
@@ -674,7 +701,7 @@ export class RiverRaidGame {
       if (Math.random() < dt * 22) {
         const ex = b.x + (Math.random() - 0.5) * 150;
         const ey = b.y + (Math.random() - 0.5) * 60;
-        this.explodeAt(ex, this.scroll + ey, 2);
+        this.explodeAt(ex, this.wy(ey), 2);
       }
       if (b.dying <= 0) {
         this.onBossDefeated();
@@ -703,20 +730,20 @@ export class RiverRaidGame {
         const n = phase2 ? 5 : 3;
         for (let i = 0; i < n; i++) {
           const ang = Math.PI / 2 + (i - (n - 1) / 2) * 0.32;
-          this.spawnEBullet(b.x, b.y + 30, Math.cos(ang) * 150, Math.sin(ang) * 190);
+          this.spawnEBullet(b.x, this.wy(b.y + 30), Math.cos(ang) * 150, Math.sin(ang) * 190);
         }
         b.fireT = phase2 ? 1.15 : 1.7;
       } else if (b.type === "fortress") {
         for (let i = 0; i < 3; i++) {
-          this.spawnEBullet(b.x - 40 + i * 40, b.y + 24, (Math.random() - 0.5) * 40, 300);
+          this.spawnEBullet(b.x - 40 + i * 40, this.wy(b.y + 24), (Math.random() - 0.5) * 40, 300);
         }
         b.fireT = phase2 ? 0.4 : 0.65;
       } else {
         const dx = this.px - b.x;
-        const dy = G.playerY - b.y;
+        const dy = G.playerY - b.y; // direção de tela até o jogador
         const len = Math.hypot(dx, dy) || 1;
-        this.spawnEBullet(b.x - 26, b.y + 20, (dx / len) * 210, (dy / len) * 210 + this.speed);
-        this.spawnEBullet(b.x + 26, b.y + 20, (dx / len) * 210, (dy / len) * 210 + this.speed);
+        this.spawnEBullet(b.x - 26, this.wy(b.y + 20), (dx / len) * 210, (dy / len) * 210);
+        this.spawnEBullet(b.x + 26, this.wy(b.y + 20), (dx / len) * 210, (dy / len) * 210);
         b.fireT = phase2 ? 1.4 : 2.1;
       }
       this.audio.hit();
@@ -726,12 +753,13 @@ export class RiverRaidGame {
     b.specialT -= dt;
     if (b.specialT <= 0) {
       if (b.type === "carrier" && this.enemies.length < 5) {
-        this.spawnEnemyAt("jet", clamp(b.x, 60, VW - 60), this.scroll - 40);
+        // jatos decolam do porta-aviões e mergulham rumo ao jogador
+        this.spawnEnemyAt("jet", clamp(b.x, 60, VW - 60), this.scroll + VH + 40);
       }
       if (b.type === "fortress") {
         for (let i = 0; i < 4; i++) {
           const ang = Math.PI / 2 + (i - 1.5) * 0.5;
-          this.spawnEBullet(b.x, b.y + 30, Math.cos(ang) * 120, Math.sin(ang) * 230);
+          this.spawnEBullet(b.x, this.wy(b.y + 30), Math.cos(ang) * 120, Math.sin(ang) * 230);
         }
       }
       b.specialT = b.type === "carrier" ? 4 : 3.2;
@@ -741,8 +769,8 @@ export class RiverRaidGame {
   private onBossDefeated() {
     const b = this.boss!;
     const pts = ({ destroyer: 1500, fortress: 3000, carrier: 6000 }[b.type] ?? 1500) * (1 + this.chapterLoop);
-    this.addScore(pts, b.x, b.y + this.scroll, "#fbbf24", 22);
-    this.explodeAt(b.x, this.scroll + b.y, 3);
+    this.addScore(pts, b.x, this.wy(b.y), "#fbbf24", 22);
+    this.explodeAt(b.x, this.wy(b.y), 3);
     this.audio.explode(3);
     this.bossDefeated.add(this.chapter - 1);
     this.boss = null;
@@ -765,7 +793,7 @@ export class RiverRaidGame {
       this.chapterLoop++;
       this.showBanner("✓ MISSÃO CUMPRIDA", `Modo infinito — volta ${this.chapterLoop}`, "#facc15");
       this.audio.chapterFanfare();
-      this.addScore(5000, VW / 2, this.scroll + 300, "#facc15", 20);
+      this.addScore(5000, VW / 2, this.wy(300), "#facc15", 20);
       this.bossSpawned.clear();
       this.invuln = Math.max(this.invuln, 1.5);
     }
@@ -962,56 +990,59 @@ export class RiverRaidGame {
   }
 
   private spawnEBullet(x: number, worldY: number, vx: number, vScreenY: number) {
-    // converte velocidade de tela → mundo
-    this.ebullets.push({ x, worldY, vx, vy: vScreenY + this.speed, alive: true });
+    // converte velocidade de tela (y para baixo) → mundo (worldY cresce para cima na tela)
+    this.ebullets.push({ x, worldY, vx, vy: this.speed - vScreenY, alive: true });
   }
 
   /* --------------------------- update entidades --------------------------- */
 
   private updateEnemies(dt: number) {
-    const playerWorldY = this.scroll + G.playerY;
+    const playerWorldY = this.playerWY;
     for (const e of this.enemies) {
       e.t += dt;
       e.hurt = Math.max(0, e.hurt - dt * 4);
       const row = this.rowAt(e.worldY);
-      const drift = (this.speed - 130) * 0.25; // parallax leve de dificuldade
+      const drift = (this.speed - 130) * 0.25; // dificuldade acompanha a velocidade
+      // "approach" = aproximação em TELA (px/s para baixo, rumo ao jogador).
+      // Velocidade no mundo = −approach (a tela flui para baixo com o scroll).
       switch (e.type) {
         case "patrol":
         case "armored":
-          e.worldY += (150 + (e.type === "armored" ? 90 : 0) + drift) * dt;
+          e.worldY -= (20 + (e.type === "armored" ? 12 : 0) + drift) * dt;
           break;
         case "balloon":
-          e.worldY += (85 + drift * 0.5) * dt;
+          e.worldY -= (10 + drift * 0.5) * dt;
           e.x += Math.sin(e.t * 1.3 + e.seed) * 26 * dt;
           break;
         case "drone":
-          e.worldY += (215 + drift) * dt;
+          e.worldY -= (45 + drift) * dt;
           e.x += Math.sin(e.t * 5 + e.seed) * 190 * dt;
           break;
         case "chopper": {
-          e.worldY += (150 + drift) * dt;
+          e.worldY -= (18 + drift) * dt;
           const dx = this.px - e.x;
           e.x += clamp(dx, -120, 120) * 1.1 * dt;
           e.fireTimer -= dt;
-          if (e.fireTimer <= 0 && e.worldY > this.scroll + 40 && e.worldY < playerWorldY - 120) {
-            const dy = playerWorldY - e.worldY;
+          // atira quando está na tela e à frente do jogador (acima dele)
+          if (e.fireTimer <= 0 && e.worldY > playerWorldY + 120 && e.worldY < this.scroll + VH) {
+            const dy = e.worldY - playerWorldY; // > 0 = à frente (acima na tela)
             const len = Math.hypot(dx, dy) || 1;
-            this.spawnEBullet(e.x, e.worldY + 10, (dx / len) * 175, (dy / len) * 175);
+            this.spawnEBullet(e.x, e.worldY - 10, (dx / len) * 175, (dy / len) * 175);
             e.fireTimer = 2.4 + this.rng() * 1.4;
             this.audio.hit();
           }
           break;
         }
         case "jet":
-          e.worldY += (560 + drift) * dt;
+          e.worldY -= (300 + drift) * dt; // mergulho rápido em direção ao jogador
           break;
         case "stealth": {
-          e.worldY += (190 + drift) * dt;
+          e.worldY -= (35 + drift) * dt;
           e.x += Math.sin(e.t * 2.4 + e.seed) * 150 * dt;
           e.fireTimer -= dt;
-          if (e.fireTimer <= 0 && e.worldY > this.scroll + 60 && e.worldY < playerWorldY - 140) {
+          if (e.fireTimer <= 0 && e.worldY > playerWorldY + 140 && e.worldY < this.scroll + VH) {
             const dx = this.px - e.x;
-            const dy = playerWorldY - e.worldY;
+            const dy = e.worldY - playerWorldY;
             const len = Math.hypot(dx, dy) || 1;
             this.spawnEBullet(e.x, e.worldY, (dx / len) * 195, (dy / len) * 195);
             e.fireTimer = 2.8 + this.rng() * 1.5;
@@ -1021,12 +1052,17 @@ export class RiverRaidGame {
         case "turret": {
           // fixa no mundo; mira no jogador
           const dx = this.px - e.x;
-          const dy = playerWorldY - e.worldY;
+          const dy = e.worldY - playerWorldY; // direção de tela até o jogador
           e.aim = Math.atan2(dy, dx);
           e.fireTimer -= dt;
-          const screenY = e.worldY - this.scroll;
-          if (e.fireTimer <= 0 && screenY > 40 && screenY < VH - 260) {
-            this.spawnEBullet(e.x + Math.cos(e.aim) * 22, e.worldY + Math.sin(e.aim) * 22, Math.cos(e.aim) * 185, Math.sin(e.aim) * 185);
+          const syE = this.sy(e.worldY);
+          if (e.fireTimer <= 0 && syE > 40 && syE < VH - 260) {
+            this.spawnEBullet(
+              e.x + Math.cos(e.aim) * 22,
+              e.worldY - Math.sin(e.aim) * 22,
+              Math.cos(e.aim) * 185,
+              Math.sin(e.aim) * 185
+            );
             e.fireTimer = 1.9 + this.rng() * 0.9;
             this.audio.hit();
           }
@@ -1038,25 +1074,34 @@ export class RiverRaidGame {
         e.x = clamp(e.x, row.left + 22, row.right - 22);
       }
     }
-    this.enemies = this.enemies.filter((e) => e.worldY < this.scroll + VH + 280 && e.hp > 0);
+    // remove mortos, os que passaram do jogador (saíram por baixo)
+    // e os que ainda estão muito à frente (acima do topo)
+    this.enemies = this.enemies.filter(
+      (e) => e.hp > 0 && e.worldY < this.scroll + VH + 280 && e.worldY > this.scroll - 140
+    );
   }
 
-  private updatePickups(dt: number) {
-    for (const p of this.pickups) p.worldY += this.speed * 0.0 * dt; // fixo no mundo
+  private updatePickups() {
+    // itens e rochas são fixos no mundo (descem com o rio na tela);
+    // margem de 300 acima do topo cobre a zona de spawn (240) — antes itens
+    // nasciam além do limite de cull e morriam sem nunca aparecer
     this.pickups = this.pickups.filter(
-      (p) => p.worldY < this.scroll + VH + 80 && p.worldY > this.scroll - 200
+      (p) => p.worldY < this.scroll + VH + 300 && p.worldY > this.scroll - 200
+    );
+    this.rocks = this.rocks.filter(
+      (r) => r.worldY < this.scroll + VH + 300 && r.worldY > this.scroll - 200
     );
   }
 
   private updateBullets(dt: number) {
     for (const b of this.bullets) {
       if (b.homing) {
-        // busca alvo mais próximo (inimigos e chefe)
+        // busca alvo mais próximo (inimigos e chefe) — somente à frente
         let tx = this.px;
-        let ty = this.scroll - 200;
+        let ty = this.scroll + VH + 200;
         let best = 1e9;
         for (const e of this.enemies) {
-          if (e.worldY >= b.worldY) continue;
+          if (e.worldY <= b.worldY) continue;
           const d = Math.hypot(e.x - b.x, e.worldY - b.worldY);
           if (d < best) {
             best = d;
@@ -1065,10 +1110,10 @@ export class RiverRaidGame {
           }
         }
         if (this.boss && this.boss.dying <= 0) {
-          const d = Math.hypot(this.boss.x - b.x, this.scroll + this.boss.y - b.worldY);
+          const d = Math.hypot(this.boss.x - b.x, this.bossWY - b.worldY);
           if (d < best) {
             tx = this.boss.x;
-            ty = this.scroll + this.boss.y;
+            ty = this.bossWY;
           }
         }
         const dx = tx - b.x;
@@ -1077,7 +1122,8 @@ export class RiverRaidGame {
         const wantVx = (dx / hyp) * G.bulletSpeed * 0.85;
         b.vx = clamp(lerp(b.vx, wantVx, 1 - Math.exp(-dt * 7)), -260, 260);
       }
-      b.worldY += (this.speed - G.bulletSpeed) * dt;
+      // herda a velocidade do avião e dispara para frente (worldY cresce à frente)
+      b.worldY += (this.speed + G.bulletSpeed) * dt;
       b.x += b.vx * dt;
       // rastro
       if (Math.random() < 0.5) {
@@ -1094,7 +1140,8 @@ export class RiverRaidGame {
         });
       }
     }
-    this.bullets = this.bullets.filter((b) => b.alive && b.worldY > this.scroll - 60);
+    // descarta ao sair pelo topo (à frente) ou morrer
+    this.bullets = this.bullets.filter((b) => b.alive && b.worldY < this.scroll + VH + 60);
   }
 
   private updateEBullets(dt: number) {
@@ -1123,7 +1170,8 @@ export class RiverRaidGame {
     this.waves = this.waves.filter((w) => w.life > 0);
     for (const t of this.texts) {
       t.life -= dt;
-      t.worldY -= 46 * dt;
+      // sobe 46 px/s na tela (worldY cresce para cima)
+      t.worldY += (this.speed + 46) * dt;
     }
     this.texts = this.texts.filter((t) => t.life > 0);
     if (this.particles.length > 420) this.particles.splice(0, this.particles.length - 420);
@@ -1132,10 +1180,11 @@ export class RiverRaidGame {
   /* ------------------------------ disparo ------------------------------ */
 
   private shoot() {
+    const nose = this.playerWY + 26; // nariz do jato (26 px à frente na tela)
     const mk = (dx: number, vx: number, homing: boolean) =>
       this.bullets.push({
         x: this.px + dx,
-        worldY: this.scroll + G.playerY - 26,
+        worldY: nose,
         vx,
         homing,
         alive: true,
@@ -1152,9 +1201,9 @@ export class RiverRaidGame {
     // flash do canhão
     this.particles.push({
       x: this.px,
-      worldY: this.scroll + G.playerY - 30,
+      worldY: this.playerWY + 30,
       vx: 0,
-      vy: -60,
+      vy: this.speed, // acompanha a tela: fica junto ao canhão
       life: 0.08,
       maxLife: 0.08,
       size: 7,
@@ -1171,7 +1220,7 @@ export class RiverRaidGame {
 
   private collide() {
     const pr = G.playerRadius;
-    const pwY = this.scroll + G.playerY;
+    const pwY = this.playerWY;
 
     // margens / ilha / ponte
     const row = this.rowAt(pwY);
@@ -1199,7 +1248,7 @@ export class RiverRaidGame {
         if (this.wShield > 0) {
           br.hp = 0;
           br.destroyed = true;
-          this.explodeAt((row.left + row.right) / 2, this.scroll + G.playerY, 2);
+          this.explodeAt((row.left + row.right) / 2, this.playerWY, 2);
         } else if (this.invuln <= 0) {
           this.killPlayer();
           return;
@@ -1237,7 +1286,7 @@ export class RiverRaidGame {
     if (this.boss && this.boss.dying <= 0) {
       if (
         Math.abs(this.boss.x - this.px) < 88 &&
-        Math.abs(this.scroll + this.boss.y - pwY) < 46
+        Math.abs(this.bossWY - pwY) < 46
       ) {
         if (this.wShield <= 0 && this.invuln <= 0) {
           this.killPlayer();
@@ -1297,7 +1346,7 @@ export class RiverRaidGame {
       if (this.boss && this.boss.dying <= 0) {
         if (
           Math.abs(this.boss.x - b.x) < 84 &&
-          Math.abs(this.scroll + this.boss.y - b.worldY) < 42
+          Math.abs(this.bossWY - b.worldY) < 42
         ) {
           b.alive = false;
           this.boss.hp -= 1;
@@ -1398,7 +1447,7 @@ export class RiverRaidGame {
     this.lives--;
     this.deathTimer = 1.7;
     this.combo = 0;
-    this.explodeAt(this.px, this.scroll + G.playerY, 3);
+    this.explodeAt(this.px, this.playerWY, 3);
     this.audio.explode(3);
     this.audio.stopEngine();
     this.addShake(0.7, 12);
@@ -1409,7 +1458,7 @@ export class RiverRaidGame {
   private respawn() {
     // ressurgimento no local (estilo clássico): combustível cheio e invulnerável
     this.alive = true;
-    const row = this.rowAt(this.scroll + G.playerY);
+    const row = this.rowAt(this.playerWY);
     const cx = (row.left + row.right) / 2;
     this.px = clamp(this.px, row.left + 40, row.right - 40);
     if (row.islL > 0 && Math.abs(this.px - cx) < 60) this.px = cx < (row.islL + row.islR) / 2 ? row.left + (row.islL - row.left) / 2 : row.right - (row.right - row.islR) / 2;
@@ -1420,8 +1469,10 @@ export class RiverRaidGame {
     this.wTriple = 0;
     this.wHoming = 0;
     this.wTurbo = 0;
-    // limpa ameaças imediatas à frente
-    this.enemies = this.enemies.filter((e) => e.worldY > this.scroll + 700 || e.worldY < this.scroll);
+    // limpa ameaças visíveis (mundo entre as bordas da tela)
+    this.enemies = this.enemies.filter(
+      (e) => e.worldY < this.scroll - 60 || e.worldY > this.scroll + VH
+    );
     this.ebullets = [];
     // se o chefe ainda vive, recupera parte da vida
     if (this.boss && this.boss.dying <= 0) {
@@ -1474,7 +1525,7 @@ export class RiverRaidGame {
         x,
         worldY,
         vx: Math.cos(a) * sp,
-        vy: Math.sin(a) * sp * 0.7 + this.speed * 0.4,
+        vy: this.speed * 0.55 - Math.sin(a) * sp * 0.7,
         life: 0.4 + this.rng() * 0.55,
         maxLife: 1,
         size: 2 + this.rng() * (3 + size * 1.6),
@@ -1595,7 +1646,7 @@ export class RiverRaidGame {
       ctx.beginPath();
       for (let x = 0; x <= VW; x += 27) {
         const yy =
-          y + Math.sin(x * 0.035 + this.t * 1.6 + (y + wScroll) * 0.05) * 5;
+          y + Math.sin(x * 0.035 + this.t * 1.6 + (y - wScroll) * 0.05) * 5;
         if (x === 0) ctx.moveTo(x, yy);
         else ctx.lineTo(x, yy);
       }
@@ -1608,7 +1659,7 @@ export class RiverRaidGame {
     for (let i = firstRow; i <= lastRow; i++) {
       const r = this.rows.get(i);
       if (!r) continue;
-      const y = i * ROW_H - this.scroll;
+      const y = this.sy(i * ROW_H);
       // terra
       ctx.fillStyle = pal.bl;
       ctx.fillRect(0, y, r.left, ROW_H + 0.5);
@@ -1641,14 +1692,14 @@ export class RiverRaidGame {
       const h = Math.sin(i * 127.1) * 43758.5453;
       const frac = h - Math.floor(h);
       if (frac < 0.16 && r.left > 34) {
-        const y = i * ROW_H - this.scroll + 8;
+        const y = this.sy(i * ROW_H) + 8;
         const x = r.left - 14 - frac * 60;
         this.drawTree(ctx, x, y, pal.tree, pal.treeDark, 0.8 + frac * 2);
       }
       const h2 = Math.sin(i * 311.7) * 43758.5453;
       const frac2 = h2 - Math.floor(h2);
       if (frac2 < 0.16 && VW - r.right > 34) {
-        const y = i * ROW_H - this.scroll + 8;
+        const y = this.sy(i * ROW_H) + 8;
         const x = r.right + 14 + frac2 * 60;
         this.drawTree(ctx, x, y, pal.tree, pal.treeDark, 0.8 + frac2 * 2);
       }
@@ -1656,7 +1707,7 @@ export class RiverRaidGame {
 
     /* --- rochas --- */
     for (const r of this.rocks) {
-      const y = r.worldY - this.scroll;
+      const y = this.sy(r.worldY);
       if (y < -40 || y > VH + 40) continue;
       ctx.save();
       ctx.translate(r.x, y);
@@ -1666,7 +1717,7 @@ export class RiverRaidGame {
 
     /* --- pontes --- */
     for (const [idx, br] of this.bridges) {
-      const y = idx * ROW_H - this.scroll;
+      const y = this.sy(idx * ROW_H);
       if (y < -60 || y > VH + 60) continue;
       const r = this.rows.get(idx);
       if (!r) continue;
@@ -1675,7 +1726,7 @@ export class RiverRaidGame {
 
     /* --- itens --- */
     for (const p of this.pickups) {
-      const y = p.worldY - this.scroll;
+      const y = this.sy(p.worldY);
       if (y < -50 || y > VH + 50) continue;
       ctx.save();
       ctx.translate(p.x, y + Math.sin(this.t * 2.4 + p.seed) * 3);
@@ -1694,7 +1745,7 @@ export class RiverRaidGame {
 
     /* --- inimigos --- */
     for (const e of this.enemies) {
-      const y = e.worldY - this.scroll;
+      const y = this.sy(e.worldY);
       if (y < -60 || y > VH + 60) continue;
       ctx.save();
       ctx.translate(e.x, y);
@@ -1722,7 +1773,7 @@ export class RiverRaidGame {
 
     /* --- balas do jogador --- */
     for (const b of this.bullets) {
-      const y = b.worldY - this.scroll;
+      const y = this.sy(b.worldY);
       ctx.save();
       ctx.shadowColor = b.homing ? "rgba(74,222,128,0.9)" : "rgba(253,224,71,0.9)";
       ctx.shadowBlur = 8;
@@ -1735,7 +1786,7 @@ export class RiverRaidGame {
 
     /* --- balas inimigas --- */
     for (const b of this.ebullets) {
-      const y = b.worldY - this.scroll;
+      const y = this.sy(b.worldY);
       ctx.save();
       ctx.shadowColor = "rgba(248,113,113,0.9)";
       ctx.shadowBlur = 7;
@@ -1792,7 +1843,7 @@ export class RiverRaidGame {
 
     /* --- partículas --- */
     for (const p of this.particles) {
-      const y = p.worldY - this.scroll;
+      const y = this.sy(p.worldY);
       const a = clamp(p.life / p.maxLife, 0, 1);
       ctx.globalAlpha = a;
       ctx.fillStyle = p.color;
@@ -1804,7 +1855,7 @@ export class RiverRaidGame {
 
     /* --- ondas de choque --- */
     for (const w of this.waves) {
-      const y = w.worldY - this.scroll;
+      const y = this.sy(w.worldY);
       const a = clamp(w.life / w.maxLife, 0, 1);
       ctx.strokeStyle = `rgba(255,255,255,${a * 0.7})`;
       ctx.lineWidth = 2.6 * a + 0.6;
@@ -1817,7 +1868,7 @@ export class RiverRaidGame {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (const tx of this.texts) {
-      const y = tx.worldY - this.scroll;
+      const y = this.sy(tx.worldY);
       const a = clamp(tx.life / 0.9, 0, 1);
       ctx.globalAlpha = a;
       ctx.font = `900 ${tx.size}px ui-sans-serif, system-ui, sans-serif`;
@@ -1985,9 +2036,9 @@ export class RiverRaidGame {
       if (Math.random() < 0.12) {
         this.particles.push({
           x: lerp(left, right, Math.random()),
-          worldY: y + this.scroll,
+          worldY: this.wy(y),
           vx: (Math.random() - 0.5) * 20,
-          vy: -20,
+          vy: this.speed + 20, // sobe lentamente na tela
           life: 1.1,
           maxLife: 1.1,
           size: 5,

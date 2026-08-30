@@ -181,6 +181,8 @@ export function GameScreen({ onFinished, onExit }: Props) {
                 {hud.paused ? <Play className="size-4" /> : <Pause className="size-4" />}
               </button>
             </div>
+            {/* Medidor de combustível compacto — logo abaixo do botão de pausa */}
+            <FuelGauge hud={hud} />
           </div>
         </div>
 
@@ -198,11 +200,6 @@ export function GameScreen({ onFinished, onExit }: Props) {
             </div>
           </div>
         )}
-
-        {/* ---------------- Medidor de combustível (lateral) ---------------- */}
-        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 z-10">
-          <FuelGauge hud={hud} />
-        </div>
 
         {/* ---------------- Temporizadores de armas ---------------- */}
         <div className="pointer-events-none absolute left-2.5 bottom-24 z-10 flex flex-col gap-1.5 sm:bottom-20">
