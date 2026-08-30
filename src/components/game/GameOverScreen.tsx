@@ -1,32 +1,54 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowRight, Home, Medal, Plane, RotateCcw, Send, Skull, Trophy } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  ArrowRight,
+  Home,
+  Layers,
+  Medal,
+  Plane,
+  RotateCcw,
+  Send,
+  Skull,
+  Trophy,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { RankingPanel } from "./RankingPanel";
+import { loadRun, type RunSave } from "@/lib/game/save";
 import type { RunResult } from "@/lib/game/types";
 
 /* =========================================================================
  * FIM DE JOGO — estatísticas da partida + envio ao ranking global.
+ * As ações ficam no TOPO da tela: depois de perder as naves, CONTINUAR do
+ * ponto salvo e JOGAR NOVAMENTE estão imediatamente acessíveis.
  * ========================================================================= */
 
 export function GameOverScreen({
   result,
   onRestart,
   onMenu,
+  onContinue,
 }: {
   result: RunResult;
   onRestart: () => void;
   onMenu: () => void;
+  onContinue: () => void;
 }) {
   const [name, setName] = useState("");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [save, setSave] = useState<RunSave | null>(null);
+
+  // o progresso desta partida acabou de ser salvo — oferece continuar
+  useEffect(() => {
+    const id = window.setTimeout(() => setSave(loadRun()), 0);
+    return () => window.clearTimeout(id);
+  }, []);
 
   const submit = async () => {
     const trimmed = name.trim().slice(0, 12);
@@ -66,7 +88,7 @@ export function GameOverScreen({
 
   return (
     <div className="min-h-dvh w-full bg-background overflow-y-auto nice-scroll">
-      <main className="max-w-2xl mx-auto px-4 py-10 flex flex-col items-center gap-6">
+      <main className="max-w-2xl mx-auto px-4 py-8 flex flex-col items-center gap-6">
         {/* Cabeçalho */}
         <div className="text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-red-500/40 bg-red-500/10 px-4 py-1 text-[11px] font-black tracking-widest text-red-400 mb-3">
@@ -75,12 +97,13 @@ export function GameOverScreen({
           </div>
           <h1 className="text-4xl font-black tracking-tighter text-foreground">FIM DE JOGO</h1>
           <p className="text-sm text-muted-foreground mt-1.5">
-            Sua aeronave foi perdida no rio. Todo progresso da missão foi registrado.
+            Suas naves acabaram no nível {result.level} (capítulo {result.chapter}).
+            O ponto exato foi salvo — continue de onde parou.
           </p>
         </div>
 
         {/* Pontuação gigante */}
-        <div className="rounded-2xl border-2 border-primary/50 bg-card/70 backdrop-blur px-10 py-6 text-center shadow-[0_0_40px_rgba(52,211,153,0.15)]">
+        <div className="rounded-2xl border-2 border-primary/50 bg-card/70 backdrop-blur px-10 py-5 text-center shadow-[0_0_40px_rgba(52,211,153,0.15)] w-full">
           <div className="text-[10px] font-black tracking-widest text-muted-foreground">
             PONTUAÇÃO FINAL
           </div>
@@ -89,10 +112,45 @@ export function GameOverScreen({
           </div>
         </div>
 
+        {/* Ações — no topo, acessíveis sem rolar a tela */}
+        <div className="grid grid-cols-1 sm:grid-cols-[1.35fr_1fr_1fr] gap-3 w-full">
+          {save && (
+            <Button
+              size="lg"
+              onClick={onContinue}
+              className="h-14 text-base shadow-xl sm:col-span-1"
+            >
+              <RotateCcw className="size-5" aria-hidden />
+              CONTINUAR — NÍVEL {save.level}
+            </Button>
+          )}
+          <Button
+            size="lg"
+            variant={save ? "secondary" : "default"}
+            onClick={onRestart}
+            className="h-14 text-base"
+          >
+            <Plane className="size-5" aria-hidden />
+            JOGAR NOVAMENTE
+          </Button>
+          <Button size="lg" variant="outline" onClick={onMenu} className="h-14 text-base">
+            <Home className="size-5" aria-hidden />
+            MENU
+          </Button>
+        </div>
+
         {/* Estatísticas */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full">
-          <Stat icon={<Plane className="size-4" aria-hidden />} label="DISTÂNCIA" value={`${result.distanceM.toLocaleString("pt-BR")} m`} />
-          <Stat icon={<Medal className="size-4" aria-hidden />} label="CAPÍTULO" value={`${result.chapter} / 3`} />
+          <Stat
+            icon={<Medal className="size-4" aria-hidden />}
+            label="DISTÂNCIA"
+            value={`${result.distanceM.toLocaleString("pt-BR")} m`}
+          />
+          <Stat
+            icon={<Layers className="size-4" aria-hidden />}
+            label="NÍVEL"
+            value={`${result.level}`}
+          />
           <Stat icon={<Skull className="size-4" aria-hidden />} label="ABATES" value={`${result.enemiesKilled}`} />
           <Stat icon={<Trophy className="size-4" aria-hidden />} label="BARRIS" value={`${result.fuelCollected}`} />
         </div>
@@ -143,18 +201,6 @@ export function GameOverScreen({
         {/* Ranking */}
         <div className="w-full">
           <RankingPanel refreshKey={refreshKey} />
-        </div>
-
-        {/* Ações */}
-        <div className="flex flex-col sm:flex-row gap-3 w-full pb-8">
-          <Button size="lg" onClick={onRestart} className="flex-1 shadow-lg">
-            <RotateCcw className="size-4" aria-hidden />
-            JOGAR NOVAMENTE
-          </Button>
-          <Button size="lg" variant="outline" onClick={onMenu} className="flex-1">
-            <Home className="size-4" aria-hidden />
-            MENU PRINCIPAL
-          </Button>
         </div>
 
         <p className="text-[11px] text-muted-foreground flex items-center gap-1 pb-6">

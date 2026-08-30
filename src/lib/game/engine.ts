@@ -18,10 +18,12 @@ import {
   type GameCallbacks,
   type PickupType,
   type RunResult,
+  type StartOptions,
 } from "./types";
 import { CHAPTERS } from "./content";
 import { drawBoss, drawEnemy, drawPickup, drawPlayer, drawRock, drawTurret } from "./sprites";
 import { AudioEngine } from "./audio";
+import { saveRun } from "./save";
 
 /* ------------------------------ utilidades ------------------------------ */
 
@@ -237,13 +239,14 @@ export class RiverRaidGame {
   // render
   private dpr = 1;
   private scale = 1;
+  private ro: ResizeObserver | null = null; // acompanha mudanças de layout (deck de controles)
 
   // mundo
   private rng = mulberry32((Date.now() & 0xffffffff) >>> 0);
   private scroll = 0;
   private rows = new Map<number, RiverRow>();
   private bridges = new Map<number, Bridge>();
-  private nextBridgeRow = Math.round((1200 * 10) / ROW_H);
+  private nextBridgeM: number = G.levelLenM; // próxima ponte (marcador de fim de nível)
   private segRemain = 0;
   private segTotal = 1;
   private curCenter = VW / 2;
@@ -291,12 +294,14 @@ export class RiverRaidGame {
   // progresso
   private score = 0;
   private distanceM = 0;
+  private level = 1; // nível atual — sobe a cada levelLenM metros (~1–2 min)
   private chapter = 1;
   private chapterLoop = 0;
   private enemiesKilled = 0;
   private fuelCollected = 0;
   private combo = 0;
   private comboT = 0;
+  private everStarted = false; // pelo menos um start() nesta instância
 
   // armas
   private wShield = 0;
@@ -333,6 +338,11 @@ export class RiverRaidGame {
     this.cb = cb;
     this.resize();
     this.bindInput();
+    // redimensiona quando o layout muda (ex.: barra de controles no mobile)
+    if (typeof ResizeObserver !== "undefined") {
+      this.ro = new ResizeObserver(() => this.resize());
+      this.ro.observe(canvas);
+    }
     // hook de depuração/QA — permite injetar estados críticos em testes
     if (typeof window !== "undefined") {
       (window as unknown as { __rrGame?: RiverRaidGame }).__rrGame = this;
@@ -342,6 +352,21 @@ export class RiverRaidGame {
   /** Testes/QA: define o nível de combustível diretamente (0..100) */
   debugSetFuel(v: number) {
     this.fuel = clamp(v, 0, 100);
+  }
+
+  /** Testes/QA: teleporte seguro de distância (mantém consistência de nível/capítulo) */
+  debugSetDistance(m: number) {
+    this.scroll = Math.max(0, m * 10);
+    this.distanceM = Math.max(0, m);
+    this.syncLevelFromDistance(false);
+    // avança cursores para não inundar a cena com spawns atrasados
+    const ahead = this.scroll + VH + 240;
+    this.spawnCursor = Math.max(this.spawnCursor, ahead - 600);
+    this.pickupCursor = Math.max(this.pickupCursor, this.scroll + 600);
+    this.powerCursor = Math.max(this.powerCursor, this.scroll + 1200);
+    this.rockCursor = Math.max(this.rockCursor, this.scroll + 900);
+    this.maxRow = Math.max(this.maxRow, Math.floor(this.scroll / ROW_H) - 2);
+    this.generateAhead();
   }
 
   /* ---------------------- coordenadas mundo ↔ tela ----------------------
@@ -373,17 +398,113 @@ export class RiverRaidGame {
 
   /* --------------------------- ciclo de vida --------------------------- */
 
-  start() {
+  /**
+   * Inicia a partida. Opções permitem: começar num nível escolhido, definir
+   * quantas naves o piloto pode perder e retomar a pontuação/ponto exato
+   * de uma partida anterior (continuar jogo salvo).
+   */
+  start(opts?: StartOptions) {
     if (this.running) return;
+    const o: StartOptions = opts ?? { level: 1, lives: G.lives };
+    this.lives = clamp(Math.round(o.lives ?? G.lives), G.livesMin, G.livesMax);
+    if (o.score && o.score > 0) this.score = Math.round(o.score);
+    if (o.enemiesKilled && o.enemiesKilled > 0) this.enemiesKilled = Math.round(o.enemiesKilled);
+    if (o.fuelCollected && o.fuelCollected > 0) this.fuelCollected = Math.round(o.fuelCollected);
+
+    // ponto de partida: distância exata (continuar) ou início do nível escolhido
+    const level = clamp(Math.round(o.level ?? 1), G.levelMin, G.levelMax);
+    const dist = Math.max(0, o.distanceM ?? (level - 1) * G.levelLenM);
+    this.scroll = dist * 10;
+    this.distanceM = dist;
+    this.syncLevelFromDistance(false);
+    // modo infinito: loop inicial coerente com o ponto de retomada
+    this.chapterLoop = dist >= 11000 ? Math.max(1, Math.ceil((dist - 11000) / 5000)) : 0;
+
+    // pontes: próxima ponte é o fim do nível corrente (com folga para não
+    // nascer em cima dela ao continuar no meio de um nível)
+    let nextBridgeM = Math.floor(dist / G.levelLenM + 1) * G.levelLenM;
+    if (nextBridgeM * 10 < this.scroll + VH + 400) nextBridgeM += G.levelLenM;
+    this.nextBridgeM = nextBridgeM;
+
+    // cursores de spawn relativos à nova posição do mundo
+    this.spawnCursor = this.scroll + 900;
+    this.pickupCursor = this.scroll + 1500;
+    this.powerCursor = this.scroll + 3200;
+    this.rockCursor = this.scroll + 5000;
+    // geração do rio começa perto da posição atual (histórico não é necessário)
+    this.maxRow = Math.max(-1, Math.floor(this.scroll / ROW_H) - 2);
+    this.generateAhead();
+
     this.running = true;
+    this.everStarted = true;
     this.audio.init();
     this.audio.resume();
     this.audio.startEngine();
     this.audio.startMusic(this.chapter);
-    this.showBanner("CAPÍTULO 1", CHAPTERS[0].name, "#4ade80");
-    this.cb.onChapterStart(1, CHAPTERS[0].name);
+    this.showBanner(
+      `NÍVEL ${this.level}`,
+      `${CHAPTERS[this.chapter - 1].name} · Capítulo ${this.chapter}`,
+      "#4ade80"
+    );
+    this.cb.onChapterStart(this.chapter, CHAPTERS[this.chapter - 1].name);
     this.lastTime = performance.now();
     this.raf = requestAnimationFrame(this.frame);
+  }
+
+  /** Foto do estado atual da partida para salvar/continuar (localStorage) */
+  getRunState() {
+    if (!this.everStarted) return null;
+    return {
+      v: 1 as const,
+      level: this.level,
+      distanceM: Math.floor(this.distanceM),
+      score: this.score,
+      lives: Math.max(0, this.lives),
+      chapter: this.chapter,
+      enemiesKilled: this.enemiesKilled,
+      fuelCollected: this.fuelCollected,
+      ts: Date.now(),
+    };
+  }
+
+  /** Nível/capítulo derivados da distância. O capítulo só AVANÇA (pela
+   * distância — ex.: piloto ultrapassou o chefe — ou pela vitória sobre ele,
+   * que é o caminho normal); nunca regride. `withEvents` emite banner/fanfarra. */
+  private syncLevelFromDistance(withEvents: boolean) {
+    const lv = Math.floor(this.distanceM / G.levelLenM) + 1;
+    const dist = this.distanceM;
+    const distChapter =
+      dist >= G.chapterDistances[2] ? 3 : dist >= G.chapterDistances[1] ? 2 : 1;
+    if (distChapter > this.chapter) {
+      this.chapter = distChapter;
+      this.palIndex = distChapter - 1;
+      this.palMix = 0;
+      if (withEvents) {
+        this.showBanner(`CAPÍTULO ${distChapter}`, CHAPTERS[distChapter - 1].name, "#4ade80");
+        this.audio.chapterFanfare();
+        this.audio.setChapter(distChapter);
+        this.cb.onChapterStart(distChapter, CHAPTERS[distChapter - 1].name);
+      }
+    }
+    if (lv > this.level) {
+      this.level = lv;
+      if (withEvents) {
+        const bonus = 200 + 100 * lv;
+        this.addScore(bonus, this.px, this.playerWY + 120, "#4ade80", 18);
+        this.showBanner(`NÍVEL ${lv}`, `Bônus +${bonus} pts · dificuldade aumenta`, "#4ade80");
+        this.audio.chapterFanfare();
+        this.pushHud();
+      }
+    } else if (lv < this.level) {
+      this.level = Math.max(1, lv);
+    }
+    // capítulos já vencidos ao pular direto para um nível alto — e o chefe
+    // do capítulo corrente, caso o ponto de retomada já o tenha ultrapassado
+    for (let i = 0; i < this.chapter - 1; i++) this.bossSpawned.add(i);
+    const chIdx = this.chapter - 1;
+    const nextCh = CHAPTERS[chIdx + 1];
+    const bossAt = nextCh ? nextCh.fromM - 260 : 11000 + this.chapterLoop * 5000;
+    if (dist >= bossAt) this.bossSpawned.add(chIdx);
   }
 
   pause() {
@@ -409,6 +530,8 @@ export class RiverRaidGame {
   destroy() {
     this.running = false;
     cancelAnimationFrame(this.raf);
+    this.ro?.disconnect();
+    this.ro = null;
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("resize", this.onResize);
@@ -545,7 +668,10 @@ export class RiverRaidGame {
     const targetThrottle = accel ? 1 : decel ? 0.04 : 0.42;
     this.throttle = lerp(this.throttle, targetThrottle, 1 - Math.exp(-dt * 3.2));
     const turbo = this.wTurbo > 0 ? 1.9 : 1;
-    const targetSpeed = lerp(G.scrollMin, G.scrollMax, this.throttle) * turbo * (1 + this.chapterLoop * 0.12);
+    // dificuldade acompanha o nível (máx. +40% no nível 17+)
+    const levelSpeed = 1 + Math.min(this.level - 1, 16) * 0.025;
+    const targetSpeed =
+      lerp(G.scrollMin, G.scrollMax, this.throttle) * turbo * levelSpeed;
     this.speed = lerp(this.speed, targetSpeed, 1 - Math.exp(-dt * 2.4));
 
     if (this.alive) {
@@ -614,6 +740,9 @@ export class RiverRaidGame {
     if (this.alive) this.scroll += this.speed * dt;
     this.distanceM = this.scroll / 10;
 
+    // nível sobe a cada levelLenM metros (~1–2 min por nível) com bônus
+    this.syncLevelFromDistance(true);
+
     // capítulo / chefe
     this.updateChapter();
 
@@ -660,6 +789,7 @@ export class RiverRaidGame {
       fuelCritical: this.fuelCritical && this.alive,
       speedKmh: Math.round(this.speed * 1.1),
       lives: this.lives,
+      level: this.level,
       chapter: this.chapter,
       chapterName: CHAPTERS[this.chapter - 1].name,
       distanceM: Math.floor(this.distanceM),
@@ -834,8 +964,8 @@ export class RiverRaidGame {
 
   private genRow(i: number) {
     if (this.segRemain <= 0) {
-      // novo segmento
-      const minW = Math.max(150, 330 - this.chapter * 45 - this.chapterLoop * 20);
+      // novo segmento — rio estreita conforme o nível avança
+      const minW = Math.max(155, 330 - (this.level - 1) * 12);
       const maxW = 400;
       this.segTotal = Math.round(28 + this.rng() * 46);
       this.segRemain = this.segTotal;
@@ -868,10 +998,10 @@ export class RiverRaidGame {
     this.rows.set(i, row);
     this.segRemain--;
 
-    // ponte periódica
-    if (i >= this.nextBridgeRow) {
+    // ponte periódica — marca o FIM de cada nível (múltiplos de levelLenM)
+    if (i * ROW_H >= this.nextBridgeM * 10) {
       this.bridges.set(i, { row: i, hp: 3, destroyed: false });
-      this.nextBridgeRow += Math.round((1500 * 10) / ROW_H);
+      this.nextBridgeM += G.levelLenM;
       // abre o rio após a ponte (gate clássico)
       this.segRemain = 0;
     }
@@ -894,17 +1024,15 @@ export class RiverRaidGame {
   /* ------------------------------ spawns ------------------------------ */
 
   private enemyWeights(): Array<[EnemyType, number]> {
-    const ch = Math.min(this.chapter, 3) + this.chapterLoop;
-    switch (ch) {
-      case 1:
-        return [["patrol", 34], ["balloon", 24], ["drone", 42]];
-      case 2:
-        return [["patrol", 16], ["balloon", 10], ["drone", 22], ["armored", 22], ["chopper", 18], ["jet", 12]];
-      case 3:
-        return [["drone", 14], ["armored", 16], ["chopper", 20], ["jet", 16], ["turret", 12], ["stealth", 22]];
-      default:
-        return [["drone", 10], ["armored", 16], ["chopper", 18], ["jet", 18], ["turret", 14], ["stealth", 24]];
-    }
+    // dificuldade cresce com o nível (não mais com capítulos)
+    const lv = this.level;
+    if (lv <= 2)
+      return [["patrol", 34], ["balloon", 24], ["drone", 42]];
+    if (lv <= 5)
+      return [["patrol", 16], ["balloon", 10], ["drone", 22], ["armored", 22], ["chopper", 18], ["jet", 12]];
+    if (lv <= 8)
+      return [["drone", 14], ["armored", 16], ["chopper", 20], ["jet", 16], ["turret", 12], ["stealth", 22]];
+    return [["drone", 10], ["armored", 16], ["chopper", 18], ["jet", 18], ["turret", 14], ["stealth", 24]];
   }
 
   private pickType(): EnemyType {
@@ -936,7 +1064,7 @@ export class RiverRaidGame {
           this.spawnEnemyAt(type, this.randInRange(row), this.spawnCursor);
         }
       }
-      const interval = Math.max(200, 430 - this.chapter * 45 - this.chapterLoop * 30);
+      const interval = Math.max(185, 400 - (this.level - 1) * 20);
       this.spawnCursor += interval * (0.75 + this.rng() * 0.6);
     }
     // combustível / itens
@@ -944,7 +1072,7 @@ export class RiverRaidGame {
       const row = this.rowAt(this.pickupCursor);
       const roll = this.rng();
       let type: PickupType = "fuel";
-      if (this.chapter >= 2 && roll < 0.22) type = "fakeFuel";
+      if (this.level >= 3 && roll < 0.22) type = "fakeFuel";
       else if (roll < 0.34) type = "fuelGold";
       this.pickups.push({
         type,
@@ -1026,7 +1154,8 @@ export class RiverRaidGame {
       e.t += dt;
       e.hurt = Math.max(0, e.hurt - dt * 4);
       const row = this.rowAt(e.worldY);
-      const drift = (this.speed - 130) * 0.25; // dificuldade acompanha a velocidade
+      // dificuldade acompanha velocidade e nível (máx. +30 px/s no nível 12+)
+      const drift = (this.speed - 130) * 0.25 + Math.min(this.level * 2.5, 30);
       // "approach" = aproximação em TELA (px/s para baixo, rumo ao jogador).
       // Velocidade no mundo = −approach (a tela flui para baixo com o scroll).
       switch (e.type) {
@@ -1572,10 +1701,14 @@ export class RiverRaidGame {
     const result: RunResult = {
       score: this.score,
       distanceM: Math.floor(this.distanceM),
+      level: this.level,
       chapter: this.chapter,
       enemiesKilled: this.enemiesKilled,
       fuelCollected: this.fuelCollected,
     };
+    // checkpoint: o ponto exato onde o piloto perdeu fica salvo (continuar)
+    const s = this.getRunState();
+    if (s) saveRun(s);
     this.pushHud();
     this.cb.onGameOver(result);
   }

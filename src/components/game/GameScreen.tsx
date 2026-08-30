@@ -5,6 +5,7 @@ import {
   Gauge,
   Heart,
   MapPin,
+  Move,
   Pause,
   Play,
   Shield,
@@ -17,9 +18,10 @@ import {
   Rocket,
 } from "lucide-react";
 import { RiverRaidGame } from "@/lib/game/engine";
-import type { HudState, RunResult } from "@/lib/game/types";
+import type { HudState, RunResult, StartOptions } from "@/lib/game/types";
+import { saveRun } from "@/lib/game/save";
 import { FuelGauge } from "./FuelGauge";
-import { VirtualControls } from "./VirtualControls";
+import { VirtualControls, useTouchMode } from "./VirtualControls";
 import { cn } from "@/lib/utils";
 
 const initialHud: HudState = {
@@ -31,6 +33,7 @@ const initialHud: HudState = {
   fuelCritical: false,
   speedKmh: 140,
   lives: 3,
+  level: 1,
   chapter: 1,
   chapterName: "Nascente do Rio",
   distanceM: 0,
@@ -41,18 +44,23 @@ const initialHud: HudState = {
   paused: false,
 };
 
+/** Altura da barra inferior de controles (deck) — área do jogo fica acima */
+const DECK_H = 176;
+
 interface Props {
+  startCfg: StartOptions;
   onFinished: (r: RunResult) => void;
   onExit: () => void;
 }
 
-export function GameScreen({ onFinished, onExit }: Props) {
+export function GameScreen({ startCfg, onFinished, onExit }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<RiverRaidGame | null>(null);
-  const [hud, setHud] = useState<HudState>(initialHud);
+  const [hud, setHud] = useState<HudState>({ ...initialHud, lives: startCfg.lives });
   const [muted, setMuted] = useState(false);
   const [ready, setReady] = useState(false);
   const [started, setStarted] = useState(false);
+  const touchMode = useTouchMode();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -79,9 +87,9 @@ export function GameScreen({ onFinished, onExit }: Props) {
     if (!g) return;
     g.audio.init();
     g.audio.resume();
-    g.start();
+    g.start(startCfg);
     setStarted(true);
-  }, []);
+  }, [startCfg]);
 
   const togglePause = useCallback(() => {
     const g = gameRef.current;
@@ -98,14 +106,39 @@ export function GameScreen({ onFinished, onExit }: Props) {
     setMuted(next);
   }, []);
 
+  /** Persiste o ponto atual da partida (continuar depois) — o fim de jogo
+   * é salvo pelo próprio motor dentro de endGame() */
+  const saveCurrentRun = useCallback(() => {
+    const g = gameRef.current;
+    if (!g) return;
+    const s = g.getRunState();
+    if (s) saveRun(s);
+  }, []);
+
+  const handleExit = useCallback(() => {
+    saveCurrentRun();
+    onExit();
+  }, [onExit, saveCurrentRun]);
+
+  // checkpoint automático sempre que o jogo pausa (inclusive em segundo plano)
+  useEffect(() => {
+    if (hud.paused && started) saveCurrentRun();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hud.paused]);
+
   const critical = hud.fuelCritical && started;
+  const maxLives = Math.max(3, Math.min(startCfg.lives, 6));
 
   return (
-    <div className="w-full min-h-dvh flex flex-col items-center justify-center bg-background relative overflow-hidden">
-      {/* Área do jogo — proporção 9:16, altura cheia */}
+    <div className="w-full h-dvh flex flex-col items-center bg-background relative overflow-hidden">
+      {/* Área do jogo — FICA ACIMA da barra de controles; o dedo nunca cobre o rio */}
       <div
-        className="relative bg-black"
-        style={{ height: "100dvh", aspectRatio: "9 / 16", maxWidth: "100vw" }}
+        className="relative bg-black shrink-0"
+        style={{
+          height: touchMode ? `calc(100dvh - ${DECK_H}px)` : "100dvh",
+          aspectRatio: "9 / 16",
+          maxWidth: "100vw",
+        }}
       >
         <canvas
           ref={canvasRef}
@@ -128,11 +161,11 @@ export function GameScreen({ onFinished, onExit }: Props) {
             )}
           </div>
 
-          {/* Capítulo / distância / vidas */}
+          {/* Nível / capítulo / distância / vidas */}
           <div className="flex flex-col items-center gap-1">
             <div className="rounded-xl border border-border/60 bg-card/70 backdrop-blur-md px-3 py-1 shadow-lg text-center">
               <div className="text-[9px] font-black tracking-widest text-muted-foreground">
-                CAPÍTULO {hud.chapter}
+                NÍVEL {hud.level} · CAP {hud.chapter}
               </div>
               <div className="text-[11px] font-bold text-foreground/90 leading-tight max-w-36 truncate">
                 {hud.chapterName}
@@ -142,8 +175,8 @@ export function GameScreen({ onFinished, onExit }: Props) {
                 {hud.distanceM.toLocaleString("pt-BR")} m
               </div>
             </div>
-            <div className="flex gap-0.5" aria-label={`${hud.lives} vidas restantes`}>
-              {Array.from({ length: 3 }).map((_, i) => (
+            <div className="flex gap-0.5" aria-label={`${hud.lives} naves restantes`}>
+              {Array.from({ length: maxLives }).map((_, i) => (
                 <Heart
                   key={i}
                   className={cn(
@@ -248,14 +281,15 @@ export function GameScreen({ onFinished, onExit }: Props) {
           </div>
         </div>
 
-        {/* ---------------- Controles de toque (joystick + botões arrastáveis) ---------------- */}
-        <VirtualControls gameRef={gameRef} emp={hud.emp} paused={hud.paused && started} />
-
         {/* ---------------- Sobreposição de pausa ---------------- */}
         {hud.paused && started && (
           <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-5 bg-black/70 backdrop-blur-sm">
             <Signpost className="size-12 text-primary" aria-hidden />
             <h2 className="text-3xl font-black tracking-widest text-foreground">PAUSADO</h2>
+            <p className="text-xs text-muted-foreground -mt-3 tabular-nums">
+              Nível {hud.level} · {hud.distanceM.toLocaleString("pt-BR")} m ·{" "}
+              {hud.score.toLocaleString("pt-BR")} pts
+            </p>
             <div className="flex flex-col gap-2.5 w-56">
               <button
                 onClick={togglePause}
@@ -272,15 +306,21 @@ export function GameScreen({ onFinished, onExit }: Props) {
                 REDEFINIR CONTROLES DE TOQUE
               </button>
               <button
-                onClick={onExit}
+                onClick={handleExit}
                 className="h-11 rounded-xl border border-border bg-card/70 font-bold text-sm hover:bg-secondary/70 cursor-pointer"
               >
                 SAIR PARA O MENU
               </button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Tecla <kbd className="px-1.5 py-0.5 rounded bg-secondary font-mono">P</kbd> para pausar/continuar ·{" "}
-              <kbd className="px-1.5 py-0.5 rounded bg-secondary font-mono">K</kbd> dispara o pulso EMP
+            <p className="text-xs text-muted-foreground text-center max-w-64 leading-relaxed">
+              <Move className="inline size-3 -mt-0.5 mr-1" aria-hidden />
+              Na barra inferior os controles podem ser arrastados enquanto o
+              jogo estiver pausado.
+              <br />
+              Tecla <kbd className="px-1.5 py-0.5 rounded bg-secondary font-mono">P</kbd> para
+              pausar/continuar ·{" "}
+              <kbd className="px-1.5 py-0.5 rounded bg-secondary font-mono">K</kbd> dispara o
+              pulso EMP
             </p>
           </div>
         )}
@@ -289,11 +329,17 @@ export function GameScreen({ onFinished, onExit }: Props) {
         {ready && !started && (
           <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-6 bg-black/80 backdrop-blur">
             <div className="text-center px-6">
-              <h2 className="text-2xl sm:text-3xl font-black text-foreground">PREPARADO, PILOTO?</h2>
+              <h2 className="text-2xl sm:text-3xl font-black text-foreground">
+                PREPARADO, PILOTO?
+              </h2>
               <p className="text-sm text-muted-foreground mt-2 max-w-72">
+                Começando no <strong className="text-foreground/90">nível {startCfg.level}</strong>{" "}
+                com <strong className="text-foreground/90">{startCfg.lives} naves</strong>.
+                <br />
                 ← → mover · ↑ ↓ velocidade · ESPAÇO atirar · K pulso EMP · P pausar
                 <br />
-                No toque: joystick digital + botões TIRO/GATILHO (segure e arraste para reposicionar).
+                No toque: joystick e botões na barra inferior — antes de decolar
+                você pode arrastá-los para a posição que preferir.
                 Joystick conectado é detectado automaticamente.
               </p>
             </div>
@@ -304,7 +350,7 @@ export function GameScreen({ onFinished, onExit }: Props) {
               DECOLAR
             </button>
             <button
-              onClick={onExit}
+              onClick={handleExit}
               className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 cursor-pointer"
             >
               voltar ao menu
@@ -312,6 +358,24 @@ export function GameScreen({ onFinished, onExit }: Props) {
           </div>
         )}
       </div>
+
+      {/* ---------------- Barra inferior de controles (deck) ----------------
+       * Exclusiva para telas de toque: o jogo corre ACIMA dela e os botões
+       * ficam sempre na parte inferior da tela. O arrasto para reposicionar
+       * só funciona antes do início da partida ou pausado (canEdit). */}
+      {touchMode && (
+        <div
+          className="relative w-full shrink-0 border-t border-border/60 bg-[#0a1410]/95"
+          style={{ height: DECK_H }}
+          aria-label="Barra de controles de toque"
+        >
+          <VirtualControls
+            gameRef={gameRef}
+            emp={hud.emp}
+            canEdit={!started || hud.paused}
+          />
+        </div>
+      )}
     </div>
   );
 }

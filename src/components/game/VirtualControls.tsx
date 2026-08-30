@@ -7,45 +7,47 @@ import {
   ChevronRight,
   ChevronUp,
   Crosshair,
+  Move,
   Zap,
 } from "lucide-react";
 import type { RiverRaidGame, TouchInput } from "@/lib/game/engine";
 import { cn } from "@/lib/utils";
 
 /* =========================================================================
- * Controles virtuais para celulares e tablets:
+ * Controles virtuais para celulares e tablets — vivem na BARRA INFERIOR
+ * (deck) abaixo da área do jogo, para o dedo nunca cobrir o rio:
  *  - Joystick DIGITAL de 8 direções (esquerda/direita/acelerar/frear)
  *  - Botão TIRO (disparo contínuo)
  *  - Botão GATILHO (pulso EMP — cargas limitadas)
  *
- * Qualquer um dos três controles pode ser REPOSICIONADO pelo usuário com um
- * simples arrastar-e-soltar: segure o controle por ~0,45 s sem mover e
- * arraste-o para a posição desejada. As posições (normalizadas 0..1 em
- * relação à área do jogo) são persistidas em localStorage.
+ * REPOSICIONAMENTO (arrastar-e-soltar): disponível SOMENTE antes do início
+ * da partida ou com o jogo pausado (`canEdit`). Durante o jogo o arrasto é
+ * desativado por completo — nenhum toque acidental move os controles.
+ * As posições (normalizadas 0..1 dentro da barra) são persistidas em
+ * localStorage (rr-controls-v2).
  * Dica de teste em desktop: abra o jogo com ?touch=1 para forçar os controles.
  * ========================================================================= */
 
 type ControlId = "joy" | "fire" | "trigger";
 
 interface ControlPos {
-  x: number; // 0..1 relativo à largura da área do jogo
-  y: number; // 0..1 relativo à altura da área do jogo
+  x: number; // 0..1 relativo à largura da barra de controles
+  y: number; // 0..1 relativo à altura da barra de controles
 }
 
 type Positions = Record<ControlId, ControlPos>;
 
-const STORAGE_KEY = "rr-controls-v1";
-const HINT_KEY = "rr-controls-hint-v1";
-const LONG_PRESS_MS = 450;
-const DRAG_SLOP_PX = 12; // deslocamento que caracteriza gesto (cancela o longo-toque)
+const STORAGE_KEY = "rr-controls-v2";
+const HINT_KEY = "rr-controls-hint-v2";
 
+/** Posições padrão: tudo na parte inferior da tela, dentro da barra */
 const DEFAULTS: Positions = {
-  joy: { x: 0.24, y: 0.79 },
-  fire: { x: 0.83, y: 0.82 },
-  trigger: { x: 0.615, y: 0.675 },
+  joy: { x: 0.21, y: 0.5 },
+  fire: { x: 0.82, y: 0.42 },
+  trigger: { x: 0.585, y: 0.66 },
 };
 
-/** Diâmetro em px de cada controle (para o clamp dentro da área) */
+/** Diâmetro em px de cada controle (para o clamp dentro da barra) */
 const SIZES: Record<ControlId, number> = { joy: 128, fire: 84, trigger: 68 };
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
@@ -57,6 +59,22 @@ function safeCapture(el: HTMLElement, pointerId: number) {
   } catch {
     /* ponteiro sintético ou já finalizado */
   }
+}
+
+/** Detecção de dispositivo de toque — compartilhada com o GameScreen (deck) */
+export function useTouchMode(): boolean {
+  const [isTouch, setIsTouch] = useState(false);
+  useEffect(() => {
+    // setState assíncrono para evitar render em cascata durante o efeito
+    const id = window.setTimeout(() => {
+      const coarse =
+        window.matchMedia?.("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
+      const forced = new URLSearchParams(window.location.search).has("touch");
+      setIsTouch(!!coarse || forced);
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, []);
+  return isTouch;
 }
 
 function loadPositions(): Positions {
@@ -89,13 +107,14 @@ function savePositions(p: Positions) {
 export function VirtualControls({
   gameRef,
   emp,
-  paused,
+  canEdit,
 }: {
   gameRef: React.RefObject<RiverRaidGame | null>;
   emp: number;
-  paused?: boolean;
+  /** true antes do início da partida ou com o jogo pausado — habilita o arrasto */
+  canEdit: boolean;
 }) {
-  const [isTouch, setIsTouch] = useState(false);
+  const isTouch = useTouchMode();
   const [pos, setPos] = useState<Positions>(() => ({ ...DEFAULTS }));
   const [showHint, setShowHint] = useState(false);
   const [dragging, setDragging] = useState<ControlId | null>(null);
@@ -110,15 +129,22 @@ export function VirtualControls({
 
   // arrasto em andamento (id + ponteiro + deslocamento do ponto de pegada)
   const dragRef = useRef<{ id: ControlId; pointerId: number; offX: number; offY: number } | null>(null);
-  // temporizadores de longo-toque por controle
-  const lpRef = useRef<Partial<Record<ControlId, number>>>({});
-  // ponto inicial do ponteiro (para cancelar longo-toque quando mover)
-  const startRef = useRef<{ x: number; y: number } | null>(null);
   // referência viva de `pos` para listeners/ponteiros fora do ciclo de render
   const posRef = useRef(pos);
   useEffect(() => {
     posRef.current = pos;
   }, [pos]);
+  // referência viva de `canEdit` para os handlers de ponteiro
+  const canEditRef = useRef(canEdit);
+  useEffect(() => {
+    canEditRef.current = canEdit;
+    // ao perder o modo de edição (jogo rodando), encerra qualquer arrasto
+    if (!canEdit && dragRef.current) {
+      dragRef.current = null;
+      setDragging(null);
+      savePositions(posRef.current);
+    }
+  }, [canEdit]);
 
   /* ------------------------------ engine ------------------------------ */
 
@@ -139,31 +165,14 @@ export function VirtualControls({
     game.setTouch({ left: false, right: false, accel: false, decel: false, fire: false, special: false });
   }, [gameRef]);
 
-  /* ---------------------- arrastar-e-soltar ---------------------- */
-
-  const cancelLongPress = useCallback(() => {
-    for (const t of Object.values(lpRef.current)) {
-      if (t) window.clearTimeout(t);
-    }
-    lpRef.current = {};
-  }, []);
+  /* ---------------------- arrastar-e-soltar (edição) ---------------------- */
 
   const beginDrag = useCallback(
     (id: ControlId, e: React.PointerEvent) => {
       const area = areaRef.current?.getBoundingClientRect();
       if (!area) return;
       // solta os comandos do controle antes de arrastar
-      if (id === "joy") {
-        setDir({ left: false, right: false, up: false, down: false });
-        setKnob({ kx: 0, ky: 0 });
-        gameRef.current?.setTouch({ left: false, right: false, accel: false, decel: false });
-      } else if (id === "fire") {
-        setFireHeld(false);
-        gameRef.current?.setTouch({ fire: false });
-      } else {
-        setTriggerHeld(false);
-        gameRef.current?.setTouch({ special: false });
-      }
+      releaseAll();
       const p = posRef.current[id];
       dragRef.current = {
         id,
@@ -174,19 +183,7 @@ export function VirtualControls({
       setDragging(id);
       navigator.vibrate?.(14);
     },
-    [gameRef]
-  );
-
-  const startLongPress = useCallback(
-    (id: ControlId, e: React.PointerEvent) => {
-      cancelLongPress();
-      startRef.current = { x: e.clientX, y: e.clientY };
-      lpRef.current[id] = window.setTimeout(() => {
-        startRef.current = null;
-        beginDrag(id, e);
-      }, LONG_PRESS_MS);
-    },
-    [beginDrag, cancelLongPress]
+    [releaseAll]
   );
 
   /** Movimento do ponteiro enquanto um arrasto está ativo */
@@ -214,81 +211,9 @@ export function VirtualControls({
     return true;
   };
 
-  /** Cancela o longo-toque quando o dedo desloca além do limiar */
-  const maybeCancelLongPress = (e: React.PointerEvent) => {
-    const s = startRef.current;
-    if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) > DRAG_SLOP_PX) {
-      cancelLongPress();
-      startRef.current = null;
-    }
-  };
-
-  /* --------------------- detecção de tela de toque --------------------- */
-
-  useEffect(() => {
-    // setState assíncrono para evitar render em cascata durante o efeito
-    const id = window.setTimeout(() => {
-      const coarse =
-        window.matchMedia?.("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
-      const forced = new URLSearchParams(window.location.search).has("touch");
-      const touch = !!coarse || forced;
-      setIsTouch(touch);
-      if (touch) {
-        setPos(loadPositions());
-        try {
-          if (!window.localStorage.getItem(HINT_KEY)) {
-            setShowHint(true);
-            window.setTimeout(() => {
-              setShowHint(false);
-              window.localStorage.setItem(HINT_KEY, "1");
-            }, 9000);
-          }
-        } catch {
-          /* localStorage indisponível: apenas ignora a dica persistente */
-        }
-      }
-    }, 0);
-    return () => window.clearTimeout(id);
-  }, []);
-
-  /* ------------------ rede de segurança: solta tudo ------------------ */
-
-  useEffect(() => {
-    const clear = () => {
-      cancelLongPress();
-      if (dragRef.current) {
-        dragRef.current = null;
-        setDragging(null);
-        savePositions(posRef.current);
-      }
-      releaseAll();
-    };
-    window.addEventListener("pointerup", clear);
-    window.addEventListener("pointercancel", clear);
-    return () => {
-      window.removeEventListener("pointerup", clear);
-      window.removeEventListener("pointercancel", clear);
-    };
-  }, [cancelLongPress, releaseAll]);
-
-  /* ---------------------- evento global de reset ---------------------- */
-
-  useEffect(() => {
-    const onReset = () => {
-      setPos({ ...DEFAULTS });
-      savePositions({ ...DEFAULTS });
-      setShowHint(true);
-      window.setTimeout(() => setShowHint(false), 4000);
-    };
-    window.addEventListener("rr-reset-controls", onReset);
-    return () => window.removeEventListener("rr-reset-controls", onReset);
-  }, []);
-
   /* ------------------------- joystick digital ------------------------- */
 
   const steer = (e: React.PointerEvent) => {
-    if (dragRef.current?.id === "joy") return;
-    maybeCancelLongPress(e);
     const el = joyRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
@@ -338,24 +263,80 @@ export function VirtualControls({
     press("decel", false);
   };
 
-  if (!isTouch || paused) return null;
+  /* ------------------ carrega posições / dica (montagem) ------------------ */
+
+  useEffect(() => {
+    if (!isTouch) return;
+    const id = window.setTimeout(() => {
+      setPos(loadPositions());
+      try {
+        if (!window.localStorage.getItem(HINT_KEY)) {
+          setShowHint(true);
+          window.setTimeout(() => {
+            setShowHint(false);
+            window.localStorage.setItem(HINT_KEY, "1");
+          }, 9000);
+        }
+      } catch {
+        /* localStorage indisponível: apenas ignora a dica persistente */
+      }
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [isTouch]);
+
+  /* ------------------ rede de segurança: solta tudo ------------------ */
+
+  useEffect(() => {
+    const clear = () => {
+      if (dragRef.current) {
+        dragRef.current = null;
+        setDragging(null);
+        savePositions(posRef.current);
+      }
+      releaseAll();
+    };
+    window.addEventListener("pointerup", clear);
+    window.addEventListener("pointercancel", clear);
+    return () => {
+      window.removeEventListener("pointerup", clear);
+      window.removeEventListener("pointercancel", clear);
+    };
+  }, [releaseAll]);
+
+  /* ---------------------- evento global de reset ---------------------- */
+
+  useEffect(() => {
+    const onReset = () => {
+      setPos({ ...DEFAULTS });
+      savePositions({ ...DEFAULTS });
+      setShowHint(true);
+      window.setTimeout(() => setShowHint(false), 4000);
+    };
+    window.addEventListener("rr-reset-controls", onReset);
+    return () => window.removeEventListener("rr-reset-controls", onReset);
+  }, []);
+
+  if (!isTouch) return null;
 
   const draggingClass =
     "cursor-grabbing scale-110 opacity-80 border-dashed border-primary z-40 ring-4 ring-primary/30";
 
   return (
-    <div ref={areaRef} className="pointer-events-none absolute inset-0 z-20">
+    <div ref={areaRef} className="absolute inset-0 z-20">
       {/* -------------------- dica de reposicionamento -------------------- */}
-      {showHint && !dragging && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-2 z-20 flex justify-center px-4">
-          <div className="rounded-full border border-border/70 bg-card/85 backdrop-blur px-3.5 py-1.5 text-[10px] font-bold text-muted-foreground shadow-lg text-center">
-            Segure e arraste os controles para reposicionar
+      {canEdit && !dragging && (
+        <div className="pointer-events-none absolute inset-x-0 top-0.5 z-20 flex justify-center px-3">
+          <div className="rounded-full border border-primary/50 bg-primary/10 backdrop-blur px-3 py-1 text-[9px] font-bold text-primary/90 shadow text-center">
+            <Move className="inline size-3 -mt-0.5 mr-1" aria-hidden />
+            {showHint
+              ? "Arraste joystick, TIRO e GATILHO para reposicionar"
+              : "Arraste os controles para reposicionar"}
           </div>
         </div>
       )}
       {dragging && (
-        <div className="pointer-events-none absolute inset-x-0 top-3 z-40 flex justify-center px-4">
-          <div className="rounded-full border border-primary/60 bg-primary/15 backdrop-blur px-3.5 py-1.5 text-[10px] font-black text-primary shadow-lg">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0.5 z-40 flex justify-center px-3">
+          <div className="rounded-full border border-primary/60 bg-primary/15 backdrop-blur px-3 py-1 text-[9px] font-black text-primary shadow">
             Solte para fixar a posição
           </div>
         </div>
@@ -379,20 +360,21 @@ export function VirtualControls({
           onPointerDown={(e) => {
             e.preventDefault();
             safeCapture(e.currentTarget as HTMLElement, e.pointerId);
-            startLongPress("joy", e);
-            steer(e);
+            if (canEditRef.current) {
+              beginDrag("joy", e);
+            } else {
+              steer(e);
+            }
           }}
           onPointerMove={(e) => {
             if (dragRef.current?.id === "joy") onDragMove(e);
-            else steer(e);
+            else if (!canEditRef.current) steer(e);
           }}
           onPointerUp={(e) => {
             e.preventDefault();
-            cancelLongPress();
             if (!endDrag(e)) releaseSteer();
           }}
           onPointerCancel={() => {
-            cancelLongPress();
             if (dragRef.current?.id === "joy") {
               dragRef.current = null;
               setDragging(null);
@@ -469,25 +451,23 @@ export function VirtualControls({
           onPointerDown={(e) => {
             e.preventDefault();
             safeCapture(e.currentTarget as HTMLElement, e.pointerId);
-            startLongPress("trigger", e);
-            if (!dragRef.current) {
+            if (canEditRef.current) {
+              beginDrag("trigger", e);
+            } else {
               setTriggerHeld(true);
               press("special", true);
             }
           }}
           onPointerMove={(e) => {
             if (dragRef.current?.id === "trigger") onDragMove(e);
-            else maybeCancelLongPress(e);
           }}
           onPointerUp={(e) => {
             e.preventDefault();
-            cancelLongPress();
             const wasDrag = endDrag(e);
             setTriggerHeld(false);
             if (!wasDrag) press("special", false);
           }}
           onPointerCancel={() => {
-            cancelLongPress();
             if (dragRef.current?.id === "trigger") {
               dragRef.current = null;
               setDragging(null);
@@ -536,25 +516,23 @@ export function VirtualControls({
           onPointerDown={(e) => {
             e.preventDefault();
             safeCapture(e.currentTarget as HTMLElement, e.pointerId);
-            startLongPress("fire", e);
-            if (!dragRef.current) {
+            if (canEditRef.current) {
+              beginDrag("fire", e);
+            } else {
               setFireHeld(true);
               press("fire", true);
             }
           }}
           onPointerMove={(e) => {
             if (dragRef.current?.id === "fire") onDragMove(e);
-            else maybeCancelLongPress(e);
           }}
           onPointerUp={(e) => {
             e.preventDefault();
-            cancelLongPress();
             const wasDrag = endDrag(e);
             setFireHeld(false);
             if (!wasDrag) press("fire", false);
           }}
           onPointerCancel={() => {
-            cancelLongPress();
             if (dragRef.current?.id === "fire") {
               dragRef.current = null;
               setDragging(null);

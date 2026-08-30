@@ -48,8 +48,8 @@ OUT="$ROOT/android/build"
 DIST="$ROOT/android/dist"
 KS="${APK_KEYSTORE:-$ROOT/android/debug.keystore}"
 
-VERSION_NAME="2.1.0"
-VERSION_CODE="1"
+VERSION_NAME="2.2.0"
+VERSION_CODE="2"
 APK_NAME="river-raid-remaster-$VERSION_NAME.apk"
 
 say()  { printf '\033[1;32m▸ %s\033[0m\n' "$*"; }

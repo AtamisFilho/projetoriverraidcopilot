@@ -1,17 +1,72 @@
 "use client";
 
-import { Gamepad2, Keyboard, MonitorSmartphone, Play, Trophy } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  Gamepad2,
+  Keyboard,
+  Layers,
+  Minus,
+  MonitorSmartphone,
+  Plane,
+  Play,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+  Trophy,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BriefingSection } from "./BriefingSection";
 import { RankingPanel } from "./RankingPanel";
 import { SpritePreview } from "./SpritePreview";
+import {
+  clearRun,
+  describeSaveAge,
+  loadConfig,
+  loadRun,
+  saveConfig,
+  type GameConfig,
+  type RunSave,
+} from "@/lib/game/save";
+import type { StartOptions } from "@/lib/game/types";
 
 /* =========================================================================
- * TELA INICIAL — hero + BRIEFING (apresentação de inimigos, obstáculos e
- * itens) + ações + rodapé fixo.
+ * TELA INICIAL — hero + CONFIGURAÇÃO DA MISSÃO (naves/nível/continuar) +
+ * BRIEFING (apresentação de inimigos, obstáculos e itens) + ranking + rodapé.
  * ========================================================================= */
 
-export function MenuScreen({ onPlay }: { onPlay: () => void }) {
+export function MenuScreen({
+  onPlay,
+  onContinue,
+}: {
+  onPlay: (cfg: StartOptions) => void;
+  onContinue: (save: RunSave) => void;
+}) {
+  const [config, setConfig] = useState<GameConfig>({ lives: 3, startLevel: 1 });
+  const [run, setRun] = useState<RunSave | null>(null);
+
+  // carrega configuração e progresso salvos após a hidratação
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setConfig(loadConfig());
+      setRun(loadRun());
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  const updateConfig = (patch: Partial<GameConfig>) => {
+    setConfig((c) => {
+      const next = { ...c, ...patch };
+      saveConfig(next);
+      return next;
+    });
+  };
+
+  const deleteSave = () => {
+    clearRun();
+    setRun(null);
+  };
+
   const scrollToRanking = () => {
     document.getElementById("ranking")?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
@@ -45,7 +100,8 @@ export function MenuScreen({ onPlay }: { onPlay: () => void }) {
           </div>
           <p className="text-sm sm:text-base text-muted-foreground mt-4 max-w-md mx-auto leading-relaxed">
             O clássico de 1982 renasce: <strong className="text-foreground/90">gráficos HD</strong>,
-            rio procedural, 8 inimigos, 3 chefes e alerta sonoro de combustível crítico.
+            níveis de 1–2 minutos com dificuldade crescente, 8 inimigos, 3 chefes,
+            checkpoint automático e alerta sonoro de combustível crítico.
           </p>
 
           {/* jato flutuante decorativo */}
@@ -55,22 +111,96 @@ export function MenuScreen({ onPlay }: { onPlay: () => void }) {
             </div>
           </div>
 
-          {/* CTAs */}
-          <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Button size="xl" onClick={onPlay} className="w-64 sm:w-auto shadow-xl">
-              <Play className="size-5" strokeWidth={3} aria-hidden />
-              INICIAR MISSÃO
-            </Button>
+          {/* CTAs — CONTINUAR tem prioridade quando existe progresso salvo */}
+          <div className="mt-6 flex flex-col items-center justify-center gap-3">
+            {run ? (
+              <div className="w-full max-w-md flex flex-col sm:flex-row items-stretch justify-center gap-3">
+                <Button size="xl" onClick={() => onContinue(run)} className="flex-1 shadow-xl">
+                  <RotateCcw className="size-5" strokeWidth={3} aria-hidden />
+                  CONTINUAR — NÍVEL {run.level}
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => onPlay({ level: config.startLevel, lives: config.lives })}
+                  className="sm:w-48"
+                >
+                  <Play className="size-4" aria-hidden />
+                  NOVA MISSÃO
+                </Button>
+              </div>
+            ) : (
+              <Button
+                size="xl"
+                onClick={() => onPlay({ level: config.startLevel, lives: config.lives })}
+                className="w-64 sm:w-auto shadow-xl"
+              >
+                <Play className="size-5" strokeWidth={3} aria-hidden />
+                INICIAR MISSÃO
+              </Button>
+            )}
+            {run && (
+              <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 flex-wrap justify-center">
+                <span className="font-bold text-foreground/80 tabular-nums">
+                  {run.score.toLocaleString("pt-BR")} pts
+                </span>
+                <span aria-hidden>·</span>
+                <span className="tabular-nums">{run.distanceM.toLocaleString("pt-BR")} m</span>
+                <span aria-hidden>·</span>
+                <span>salvo {describeSaveAge(run.ts)}</span>
+                <button
+                  onClick={deleteSave}
+                  className="inline-flex items-center gap-1 text-muted-foreground/70 hover:text-red-400 underline underline-offset-2 cursor-pointer"
+                  aria-label="Apagar progresso salvo"
+                >
+                  <Trash2 className="size-3" aria-hidden />
+                  apagar
+                </button>
+              </p>
+            )}
             <Button size="lg" variant="outline" onClick={scrollToRanking} className="w-64 sm:w-auto">
               <Trophy className="size-4 text-amber-400" aria-hidden />
               RANKING GLOBAL
             </Button>
           </div>
-
-          <p className="text-[11px] text-muted-foreground mt-3">
-            Role para baixo e estude o briefing antes de decolar ↓
-          </p>
         </header>
+
+        {/* ---------------- CONFIGURAÇÃO DA MISSÃO ---------------- */}
+        <section className="w-full max-w-md px-4 pb-6" aria-label="Configuração da missão">
+          <div className="rounded-2xl border border-border/70 bg-card/60 backdrop-blur p-4 shadow-lg">
+            <div className="flex items-center gap-2 mb-3 justify-center">
+              <Save className="size-4 text-primary" aria-hidden />
+              <h2 className="text-xs font-black tracking-widest text-foreground/90">
+                CONFIGURAÇÃO DA MISSÃO
+              </h2>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              <Stepper
+                label="NAVES"
+                icon={<Plane className="size-3.5 text-primary" aria-hidden />}
+                value={config.lives}
+                min={1}
+                max={6}
+                onChange={(v) => updateConfig({ lives: v })}
+                hint="quantas pode perder"
+              />
+              <Stepper
+                label="NÍVEL INICIAL"
+                icon={<Layers className="size-3.5 text-primary" aria-hidden />}
+                value={config.startLevel}
+                min={1}
+                max={50}
+                onChange={(v) => updateConfig({ startLevel: v })}
+                hint="dificuldade de partida"
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground text-center mt-2.5 leading-relaxed">
+              Cada nível dura de 1 a 2 minutos e a dificuldade cresce a ponte que
+              passa. Ao perder todas as naves ou pausar, o progresso fica salvo —
+              depois é possível continuar do mesmo ponto.
+            </p>
+          </div>
+        </section>
 
         {/* ---------------- BRIEFING (apresentação na tela inicial) ---------------- */}
         <BriefingSection />
@@ -113,9 +243,10 @@ export function MenuScreen({ onPlay }: { onPlay: () => void }) {
               <MonitorSmartphone className="size-6 mx-auto text-primary mb-2" aria-hidden />
               <h3 className="font-black text-sm">TOQUE</h3>
               <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                Em celulares e tablets: <strong>joystick digital</strong> de 8 direções, botão{" "}
-                <strong>TIRO</strong> e <strong>GATILHO</strong> (pulso EMP). Segure qualquer controle
-                e arraste para reposicioná-lo — a posição fica salva automaticamente.
+                Em celulares e tablets o <strong>joystick digital</strong>, o botão{" "}
+                <strong>TIRO</strong> e o <strong>GATILHO</strong> ficam numa barra na parte
+                inferior da tela — o dedo nunca cobre o rio. Para reposicionar, arraste-os{" "}
+                <strong>antes de decolar ou com o jogo pausado</strong>.
               </p>
             </div>
           </div>
@@ -133,6 +264,63 @@ export function MenuScreen({ onPlay }: { onPlay: () => void }) {
           </span>
         </div>
       </footer>
+    </div>
+  );
+}
+
+/* ---------------------------- seletor numérico ---------------------------- */
+
+function Stepper({
+  label,
+  icon,
+  value,
+  min,
+  max,
+  onChange,
+  hint,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+  hint: string;
+}) {
+  const dec = () => onChange(Math.max(min, value - 1));
+  const inc = () => onChange(Math.min(max, value + 1));
+  return (
+    <div className="flex flex-col gap-1.5 rounded-xl border border-border/70 bg-background/40 px-3 py-2.5">
+      <div className="flex items-center gap-1.5">
+        {icon}
+        <span className="text-[10px] font-black tracking-widest text-muted-foreground">
+          {label}
+        </span>
+      </div>
+      <div className="flex items-center justify-between gap-1.5">
+        <button
+          type="button"
+          onClick={dec}
+          disabled={value <= min}
+          aria-label={`Diminuir ${label.toLowerCase()}`}
+          className="size-9 rounded-lg border border-border/70 bg-card/80 flex items-center justify-center hover:bg-secondary/70 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <Minus className="size-4" aria-hidden />
+        </button>
+        <span className="text-2xl font-black tabular-nums text-foreground min-w-8 text-center">
+          {value}
+        </span>
+        <button
+          type="button"
+          onClick={inc}
+          disabled={value >= max}
+          aria-label={`Aumentar ${label.toLowerCase()}`}
+          className="size-9 rounded-lg border border-border/70 bg-card/80 flex items-center justify-center hover:bg-secondary/70 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <Plus className="size-4" aria-hidden />
+        </button>
+      </div>
+      <span className="text-[9px] text-muted-foreground/80 text-center">{hint}</span>
     </div>
   );
 }

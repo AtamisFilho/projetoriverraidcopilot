@@ -7,14 +7,14 @@ solução de problemas.
 ## Visão geral
 
 O River Raid Remaster roda no Android como um **APK nativo extremamente leve
-(~276 KB)**: um invólucro mínimo de `WebView` que carrega um bundle web
+(~280 KB)**: um invólucro mínimo de `WebView` que carrega um bundle web
 autossuficiente (HTML + JS + CSS, sem Next.js) embutido dentro do próprio APK.
 
 | Item | Valor |
 | --- | --- |
 | Pacote | `com.atamisfilho.riverraid` |
-| Versão | 2.1.0 (`versionCode` 1) |
-| Tamanho do APK | ~276 KB |
+| Versão | 2.2.0 (`versionCode` 2) |
+| Tamanho do APK | ~280 KB |
 | SDK mínimo | 21 — Android 5.0+ (Android 8+ recomendado na prática) |
 | SDK alvo | 34 — Android 14 |
 | Permissões | apenas `VIBRATE` (vibração leve ao arrastar os controles) |
@@ -38,16 +38,31 @@ Características principais:
   botão **voltar** que pausa a partida antes de sair, e `WebView` congelada em
   `onPause` para economizar bateria.
 
+### Novidades da v2.2.0
+
+- **Níveis de 1–2 minutos** (1500 m cada) terminando em pontes blindadas, com
+  dificuldade crescente e bônus a cada nível.
+- **Configuração da missão** no menu: escolha de **1 a 6 naves** (quantas o
+  piloto pode perder, respawnando no mesmo local) e do **nível inicial** (1–50).
+- **Continuar do ponto salvo**: checkpoint automático ao pausar, sair para o
+  menu ou perder todas as naves — o menu e a tela de fim de jogo oferecem
+  **CONTINUAR — NÍVEL n**, retomando nível/distância/pontuação exatos.
+- **Barra de controles inferior dedicada** — o rio roda acima dela; nave mais
+  alta na tela; controle lateral mais suave; reposicionamento por arrastar-e-soltar
+  apenas antes de decolar/pausado (sem reposicionamento acidental em jogo).
+
 ## Download e instalação
 
-- **Release v2.1.0**:
-  <https://github.com/AtamisFilho/projetoriverraidcopilot/releases/tag/v2.1.0>
+- **Release v2.2.0**:
+  <https://github.com/AtamisFilho/projetoriverraidcopilot/releases/tag/v2.2.0>
 - **Download direto do APK**:
-  <https://github.com/AtamisFilho/projetoriverraidcopilot/releases/download/v2.1.0/river-raid-remaster-2.1.0.apk>
+  <https://github.com/AtamisFilho/projetoriverraidcopilot/releases/download/v2.2.0/river-raid-remaster-2.2.0.apk>
+- Release anterior (v2.1.0):
+  <https://github.com/AtamisFilho/projetoriverraidcopilot/releases/tag/v2.1.0>
 
 ### Instalando no aparelho (fontes desconhecidas)
 
-1. Baixe o `river-raid-remaster-2.1.0.apk` direto no celular (ou transfira o
+1. Baixe o `river-raid-remaster-2.2.0.apk` direto no celular (ou transfira o
    arquivo para o aparelho).
 2. Toque no arquivo baixado (notificação ou gerenciador de arquivos).
 3. O Android avisará que o app vem de uma fonte desconhecida — toque em
@@ -61,19 +76,22 @@ Características principais:
 ### Instalando via adb (desenvolvedores)
 
 ```bash
-adb install -r android/dist/river-raid-remaster-2.1.0.apk
+adb install -r android/dist/river-raid-remaster-2.2.0.apk
 ```
 
 A flag `-r` reinstala/atualiza preservando os dados — inclusive as posições
-salvas dos controles de toque, que vivem no `localStorage` da WebView
-(DOM storage habilitado no `MainActivity`).
+salvas dos controles de toque e o progresso da missão (checkpoint), que vivem
+no `localStorage` da WebView (DOM storage habilitado no `MainActivity`).
 
 ## Controles de toque
 
 Os controles virtuais (`src/components/game/VirtualControls.tsx`) aparecem
 **automaticamente em dispositivos de toque** (detecção por
-`(pointer: coarse)` e/ou `navigator.maxTouchPoints > 0`) e somem enquanto o
-jogo está pausado.
+`(pointer: coarse)` e/ou `navigator.maxTouchPoints > 0`) dentro de uma
+**barra inferior dedicada** (deck de ~176 px): a área do jogo — o rio por onde
+a nave percorre — fica **acima** da barra, de modo que o dedo do piloto nunca
+cobre a visão da área de jogo. A nave também voa um pouco mais alta, com
+folga extra sobre a barra.
 
 | Controle | Aparência | Função |
 | --- | --- | --- |
@@ -83,18 +101,25 @@ jogo está pausado.
 
 ### Reposicionamento (arrastar e soltar)
 
-- **Segure qualquer controle por ~0,45 s sem mover** e ele "desprende"
-  (vibração leve de 14 ms onde suportado); arraste para a nova posição e solte
-  (outra vibração de 10 ms).
-- As posições são **normalizadas (0..1)** em relação à área do jogo e
-  persistidas no `localStorage`, chave **`rr-controls-v1`** — valem para as
+O reposicionamento é um **simples arrastar-e-soltar**, mas só está habilitado
+**antes do início da partida ou com o jogo pausado** — durante o jogo o arrasto
+é desativado por completo, para que segurar o dedo sobre o joystick nunca
+reposicione os controles acidentalmente:
+
+- **Antes de decolar** (tela "PREPARADO, PILOTO?") ou **pausado**: toque em
+  qualquer controle e arraste diretamente para a nova posição (vibração leve
+  de 14 ms onde suportado); solte para fixar (outra vibração de 10 ms).
+- **Durante a partida**: os controles só executam suas ações (mover/atirar/EMP) —
+  nenhum gesto os move.
+- As posições são **normalizadas (0..1)** em relação à barra de controles e
+  persistidas no `localStorage`, chave **`rr-controls-v2`** — valem para as
   próximas partidas e sobrevivem a reinstalações via `adb install -r`.
-- O arrasto é limitado aos limites da área de jogo (o controle nunca "escapa"
-  da tela) e solta automaticamente os comandos que estavam ativos.
+- O arrasto é limitado aos limites da barra (o controle nunca "escapa" da
+  tela) e solta automaticamente os comandos que estavam ativos.
 - **Redefinir**: o menu de pausa tem o botão **REDEFINIR CONTROLES DE TOQUE**,
   que devolve os três controles às posições padrão e apaga o `localStorage`.
-- Na primeira partida, uma dica flutuante explica o gesto ("Segure e arraste os
-  controles para reposicionar") — mostrada uma única vez.
+- Enquanto a edição está habilitada, um selo na parte superior da barra lembra:
+  "Arraste os controles para reposicionar".
 
 ### Pulso EMP (o "gatilho")
 
@@ -184,8 +209,8 @@ pré-cheques no topo de `android/build-apk.sh`).
 ▸ d8: gerando classes.dex…
 ▸ Empacotando classes.dex…
 ▸ zipalign…
-▸ apksigner: assinando river-raid-remaster-2.1.0.apk…
-✓ APK pronto: android/dist/river-raid-remaster-2.1.0.apk (~276 KB)
+▸ apksigner: assinando river-raid-remaster-2.2.0.apk…
+✓ APK pronto: android/dist/river-raid-remaster-2.2.0.apk (~280 KB)
 ```
 
 O script também imprime a verificação da assinatura (`apksigner verify`) e o
@@ -193,7 +218,7 @@ O script também imprime a verificação da assinatura (`apksigner verify`) e o
 lançadora) como checagem final. Instale com:
 
 ```bash
-adb install -r android/dist/river-raid-remaster-2.1.0.apk
+adb install -r android/dist/river-raid-remaster-2.2.0.apk
 ```
 
 Arquivos regenerados por build (já no `.gitignore`): `android/build/`,
@@ -248,7 +273,7 @@ Passo a passo:
 **Por que não Gradle?** O aplicativo é uma única `Activity` com uma `WebView` —
 não há AndroidX, não há dependências nativas, não há variantes de build.
 Gradle + AGP trariam centenas de megabytes de ferramentas e uma etapa opaca
-para… gerar o mesmo APK de 276 KB. O pipeline direto é **leve, reproduzível e
+para… gerar o mesmo APK de 280 KB. O pipeline direto é **leve, reproduzível e
 auditável** (todo o processo está visível em um script curto), depende apenas
 do JDK e das build-tools, e roda em segundos.
 
@@ -324,9 +349,9 @@ A versão vive em **três lugares** (mantenha os três em sincronia):
 
 | Arquivo | O que alterar |
 | --- | --- |
-| `android/build-apk.sh` | `VERSION_NAME="2.1.0"` e `VERSION_CODE="1"` — **são estes valores que entram de fato no APK** (flags `--version-name`/`--version-code` do `aapt2 link`) e que definem o nome do arquivo em `android/dist/` |
+| `android/build-apk.sh` | `VERSION_NAME="2.2.0"` e `VERSION_CODE="2"` — **são estes valores que entram de fato no APK** (flags `--version-name`/`--version-code` do `aapt2 link`) e que definem o nome do arquivo em `android/dist/` |
 | `android/app/src/main/AndroidManifest.xml` | `android:versionName` / `android:versionCode` — mantidos por consistência/leitura do manifesto (as flags do `aapt2` têm precedência) |
-| `package.json` | `"version": "2.1.0"` |
+| `package.json` | `"version": "2.2.0"` |
 
 Regra de bolso: a cada release, incremente `versionCode` em +1 (o Android usa
 esse inteiro para ordenar versões) e atualize `versionName` para a versão
@@ -343,8 +368,10 @@ de fim de jogo exibem a mensagem amigável:
 > "No aplicativo Android o jogo é 100% offline — o ranking global fica
 > disponível na versão web."
 
-Tudo o mais (motor de jogo, briefing tático, controles de toque, áudio
-sintetizado, pulso EMP, pausa via botão voltar) funciona integralmente offline.
+Tudo o mais (motor de jogo, níveis e checkpoint de progresso, briefing tático,
+controles de toque, áudio sintetizado, pulso EMP, pausa via botão voltar)
+funciona integralmente offline — o progresso salvo (continuar do ponto onde
+parou) e a configuração de missão vivem no `localStorage` da WebView.
 
 ## Limitações conhecidas
 
@@ -375,18 +402,30 @@ sintetizado, pulso EMP, pausa via botão voltar) funciona integralmente offline.
 
 ## Verificações realizadas (E2E)
 
-Antes da publicação da v2.1.0, o pacote Android foi verificado ponta a ponta:
+Antes da publicação da v2.2.0, o pacote Android foi verificado ponta a ponta:
 
-- **Joystick digital**: 8 direções (incluindo diagonais) via eventos sintéticos
-  de ponteiro.
-- **Reposicionamento**: arrastar-e-soltar dos três controles, persistência em
-  `localStorage` (`rr-controls-v1`) entre recargas e reset via botão do menu
-  de pausa.
+- **Joystick digital**: 8 direções via eventos de ponteiro reais — nave desloca
+  com a nova física suavizada (≈215 px/s de velocidade lateral de pico).
+- **Reposicionamento**: arrastar-e-soltar dos três controles **antes de decolar**
+  e **com o jogo pausado** (drag imediato), persistência em `localStorage`
+  (`rr-controls-v2`) e **impossibilidade de arrastar durante a partida** (posição
+  e chave de persistência idênticas antes/depois da tentativa).
+- **Barra inferior dedicada**: geometria medida no viewport 390×844 — canvas do
+  jogo de 0 a 668 px, barra de controles de 668 a 844 px, joystick/tiro/gatilho
+  contidos na barra (nenhuma sobreposição com o rio) e nave visível acima dela.
+- **Níveis**: fronteira em 3000 m — HUD "NÍVEL 2 → NÍVEL 3", capítulo 1 → 2,
+  bônus de nível somado à pontuação.
+- **Configuração de missão**: seletores de naves (1–6) e nível inicial (1–50)
+  persistidos em `rr-config-v1`; partida iniciada no nível 2 com 5 naves.
+- **Continuar**: checkpoint gravado ao pausar, ao sair para o menu e no fim de
+  jogo; retomada do ponto exato (nível/distância/pontuação/abates) com naves
+  renovadas; botões CONTINUAR/JOGAR NOVAMENTE no topo da tela de fim de jogo.
 - **Pulso EMP**: consumo de carga (2→1), dano exato no chefe (60→48 = −12),
   limpeza das balas inimigas, recarga ao derrotar chefe, cooldown engolindo
-  toques subsequentes e *edge-latch* garantindo disparo em toques instantâneos.
+  toques subsequentes e *edge-latch* garantindo disparo em toques instantâneos
+  (herdado da v2.1.0, sem regressões).
 - **APK**: assinatura verificada (esquemas v1 + v2) e *badging* conferido via
-  `aapt2 dump badging` (pacote, SDKs, rótulo, activity lançadora).
-- **Bundle via `file://`** no navegador desktop: motor, HUD, controles de toque
-  e mensagens offline do ranking funcionando.
+  `aapt2 dump badging` (pacote, versionCode 2, SDKs, rótulo, activity lançadora).
+- **Bundle via `file://`** no navegador desktop: motor, HUD, barra de controles
+  (com `?touch=1`) e mensagens offline do ranking funcionando.
 - `tsc --noEmit` e `eslint` limpos.
