@@ -95,6 +95,8 @@ export function MenuScreen({ onPlay }: { onPlay: () => void }) {
                 velocidade ·{" "}
                 <kbd className="px-1.5 py-0.5 rounded bg-secondary font-mono text-[10px]">ESPAÇO</kbd>{" "}
                 atirar ·{" "}
+                <kbd className="px-1.5 py-0.5 rounded bg-secondary font-mono text-[10px]">K</kbd>{" "}
+                pulso EMP ·{" "}
                 <kbd className="px-1.5 py-0.5 rounded bg-secondary font-mono text-[10px]">P</kbd>{" "}
                 pausar
               </p>
@@ -111,8 +113,9 @@ export function MenuScreen({ onPlay }: { onPlay: () => void }) {
               <MonitorSmartphone className="size-6 mx-auto text-primary mb-2" aria-hidden />
               <h3 className="font-black text-sm">TOQUE</h3>
               <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                Em celulares e tablets os controles aparecem automaticamente na tela: direção,
-                acelerar/frear e botão de disparo.
+                Em celulares e tablets: <strong>joystick digital</strong> de 8 direções, botão{" "}
+                <strong>TIRO</strong> e <strong>GATILHO</strong> (pulso EMP). Segure qualquer controle
+                e arraste para reposicioná-lo — a posição fica salva automaticamente.
               </p>
             </div>
           </div>

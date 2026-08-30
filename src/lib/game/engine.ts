@@ -215,6 +215,7 @@ export interface TouchInput {
   fire: boolean;
   accel: boolean;
   decel: boolean;
+  special: boolean; // gatilho: pulso EMP
 }
 
 /* ------------------------------ motor ------------------------------ */
@@ -314,9 +315,15 @@ export class RiverRaidGame {
 
   // input
   private keys = new Set<string>();
-  private touch: TouchInput = { left: false, right: false, fire: false, accel: false, decel: false };
+  private touch: TouchInput = { left: false, right: false, fire: false, accel: false, decel: false, special: false };
   private padPauseEdge = false;
   private hudTick = 0;
+
+  // pulso EMP (gatilho)
+  private emp: number = G.empStart;
+  private empCd = 0;
+  private specialHeld = false;
+  private specialLatch = false; // borda de subida capturada entre ticks (taps ultra-rápidos)
 
   constructor(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     this.canvas = canvas;
@@ -410,7 +417,10 @@ export class RiverRaidGame {
   }
 
   setTouch(i: Partial<TouchInput>) {
+    const was = this.touch.special;
     this.touch = { ...this.touch, ...i };
+    // trava a borda de subida: um toque mais curto que 1 tick (1/120 s) ainda dispara
+    if (!was && this.touch.special) this.specialLatch = true;
   }
 
   setMuted(m: boolean) {
@@ -448,8 +458,8 @@ export class RiverRaidGame {
     document.addEventListener("visibilitychange", this.onVisibility);
   }
 
-  private readGamepad(): { lx: number; fire: boolean; accel: boolean; decel: boolean; pause: boolean } {
-    const out = { lx: 0, fire: false, accel: false, decel: false, pause: false };
+  private readGamepad(): { lx: number; fire: boolean; accel: boolean; decel: boolean; pause: boolean; special: boolean } {
+    const out = { lx: 0, fire: false, accel: false, decel: false, pause: false, special: false };
     if (typeof navigator === "undefined" || !navigator.getGamepads) return out;
     const pads = navigator.getGamepads();
     for (const p of pads) {
@@ -459,6 +469,7 @@ export class RiverRaidGame {
       if (p.buttons[14]?.pressed) out.lx -= 1;
       if (p.buttons[15]?.pressed) out.lx += 1;
       out.fire = out.fire || !!(p.buttons[0]?.pressed || p.buttons[7]?.pressed || p.buttons[2]?.pressed);
+      out.special = out.special || !!(p.buttons[1]?.pressed || p.buttons[4]?.pressed || p.buttons[5]?.pressed);
       out.accel = out.accel || !!(p.buttons[12]?.pressed || (p.axes[1] ?? 0) < -0.5);
       out.decel = out.decel || !!(p.buttons[13]?.pressed || (p.axes[1] ?? 0) > 0.5);
       const st = p.buttons[9]?.pressed;
@@ -523,6 +534,12 @@ export class RiverRaidGame {
       this.keys.has("ArrowDown") || this.keys.has("KeyS") || this.touch.decel || pad.decel;
     const fire =
       this.keys.has("Space") || this.keys.has("KeyJ") || this.touch.fire || pad.fire;
+    // gatilho especial (pulso EMP) — detecção de borda (1 pulso por toque)
+    const special =
+      this.touch.special || this.keys.has("KeyK") || this.keys.has("KeyL") || pad.special;
+    const specialEdge = this.specialLatch || (special && !this.specialHeld);
+    this.specialLatch = false;
+    this.specialHeld = special;
 
     // --- velocidade / throttle ---
     const targetThrottle = accel ? 1 : decel ? 0.04 : 0.42;
@@ -566,6 +583,10 @@ export class RiverRaidGame {
         this.shoot();
         this.fireCd = 1 / G.fireRate;
       }
+
+      // --- pulso EMP (gatilho) ---
+      this.empCd = Math.max(0, this.empCd - dt);
+      if (specialEdge && this.empCd <= 0 && this.emp > 0) this.fireEmp();
 
       // --- armas timers ---
       this.wShield = Math.max(0, this.wShield - dt);
@@ -633,6 +654,7 @@ export class RiverRaidGame {
     this.cb.onHud({
       score: this.score,
       combo: this.combo,
+      emp: this.emp,
       fuel: this.fuel,
       fuelSeconds: this.fuel / consumption,
       fuelCritical: this.fuelCritical && this.alive,
@@ -772,6 +794,8 @@ export class RiverRaidGame {
     this.addScore(pts, b.x, this.wy(b.y), "#fbbf24", 22);
     this.explodeAt(b.x, this.wy(b.y), 3);
     this.audio.explode(3);
+    // recompensa: recarga de uma carga do pulso EMP
+    this.emp = Math.min(G.empMax, this.emp + 1);
     this.bossDefeated.add(this.chapter - 1);
     this.boss = null;
 
@@ -1214,6 +1238,64 @@ export class RiverRaidGame {
       this.audio.shoot();
       this.lastShotSound = this.t;
     }
+  }
+
+  /* --------------------------- pulso EMP (gatilho) --------------------------- */
+
+  private fireEmp() {
+    this.emp--;
+    this.empCd = G.empCooldown;
+    // anel de choque em expansão a partir do jato
+    this.waves.push({
+      x: this.px,
+      worldY: this.playerWY,
+      r: 14,
+      maxR: VW * 0.95,
+      life: 0.55,
+      maxLife: 0.55,
+    });
+    // dissipa todos os projéteis inimigos em cena
+    for (const b of this.ebullets) {
+      this.particles.push({
+        x: b.x,
+        worldY: b.worldY,
+        vx: 0,
+        vy: 0,
+        life: 0.22,
+        maxLife: 0.22,
+        size: 6,
+        color: "rgba(125,211,252,0.9)",
+        fade: 1,
+      });
+    }
+    this.ebullets = [];
+    // dano em todos os inimigos visíveis
+    for (const e of this.enemies) {
+      if (e.worldY >= this.scroll - 40 && e.worldY <= this.scroll + VH + 40) {
+        e.hp -= G.empDamage;
+        if (e.hp <= 0) this.killEnemy(e, false);
+      }
+    }
+    // o chefe sofre dano fixo
+    if (this.boss && this.boss.dying <= 0) {
+      this.boss.hp -= G.empBossDamage;
+      this.boss.hurt = 0.7;
+      if (this.boss.hp <= 0) {
+        this.boss.dying = 2.2;
+        this.addShake(0.8, 14);
+      }
+    }
+    this.texts.push({
+      x: this.px,
+      worldY: this.playerWY + 52,
+      text: "PULSO EMP",
+      life: 1,
+      color: "#7dd3fc",
+      size: 15,
+    });
+    this.addShake(0.35, 7);
+    this.audio.explode(2);
+    this.pushHud();
   }
 
   /* ------------------------------ colisões ------------------------------ */

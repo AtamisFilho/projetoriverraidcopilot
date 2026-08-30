@@ -17,3 +17,7 @@ skills/
 tool-results/
 upload/
 download/
+
+# Android (gerados em build — scripts recriam)
+android/debug.keystore
+android/app/src/main/assets/www/

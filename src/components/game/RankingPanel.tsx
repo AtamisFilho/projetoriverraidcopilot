@@ -16,6 +16,14 @@ export interface ScoreRow {
   createdAt: string;
 }
 
+/** Mensagem amigável quando o ranking está indisponível (APK offline ou sem rede) */
+function rankingErrorMessage(): string {
+  if (typeof window !== "undefined" && !window.location.protocol.startsWith("http")) {
+    return "No aplicativo Android o jogo é 100% offline — o ranking global fica disponível na versão web.";
+  }
+  return "Não foi possível carregar o ranking (verifique sua conexão).";
+}
+
 export function RankingPanel({ refreshKey = 0 }: { refreshKey?: number }) {
   const [rows, setRows] = useState<ScoreRow[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,7 +38,7 @@ export function RankingPanel({ refreshKey = 0 }: { refreshKey?: number }) {
       const json = (await res.json()) as { scores: ScoreRow[] };
       setRows(json.scores);
     } catch {
-      setError("Não foi possível carregar o ranking.");
+      setError(rankingErrorMessage());
     } finally {
       setLoading(false);
     }
@@ -45,7 +53,7 @@ export function RankingPanel({ refreshKey = 0 }: { refreshKey?: number }) {
         const json = (await res.json()) as { scores: ScoreRow[] };
         if (alive) setRows(json.scores);
       } catch {
-        if (alive) setError("Não foi possível carregar o ranking.");
+        if (alive) setError(rankingErrorMessage());
       } finally {
         if (alive) setLoading(false);
       }

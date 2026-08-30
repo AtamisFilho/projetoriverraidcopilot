@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0b0f14" />
+    <title>River Raid Remaster</title>
+    <link rel="stylesheet" href="app.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0b0f14;
+        overscroll-behavior: none;
+        touch-action: manipulation;
+      }
+      #root {
+        min-height: 100dvh;
+      }
+      * {
+        -webkit-tap-highlight-color: transparent;
+      }
+      #fatal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: #0b0f14;
+        color: #f87171;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        text-align: center;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="fatal" role="alert">
+      <div>
+        <strong>O jogo encontrou um problema.</strong>
+        <p id="fatal-msg" style="color: #94a3b8; word-break: break-word"></p>
+        <p style="color: #64748b; font-size: 12px">Feche e abra o aplicativo novamente.</p>
+      </div>
+    </div>
+    <script>
+      window.addEventListener("error", function (e) {
+        var d = document.getElementById("fatal");
+        if (d) {
+          d.style.display = "flex";
+          var m = document.getElementById("fatal-msg");
+          if (m) m.textContent = String(e.message || "Erro desconhecido");
+        }
+      });
+    </script>
+    <script src="app.js"></script>
+  </body>
+</html>

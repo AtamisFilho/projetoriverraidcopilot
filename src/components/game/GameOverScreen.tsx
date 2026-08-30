@@ -51,8 +51,14 @@ export function GameOverScreen({
       }
       setSent(true);
       setRefreshKey((k) => k + 1);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao enviar pontuação.");
+    } catch {
+      const apk =
+        typeof window !== "undefined" && !window.location.protocol.startsWith("http");
+      setError(
+        apk
+          ? "No aplicativo Android o jogo é 100% offline — o ranking global fica disponível na versão web."
+          : "Falha ao enviar pontuação (verifique sua conexão)."
+      );
     } finally {
       setSending(false);
     }

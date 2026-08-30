@@ -38,6 +38,7 @@ export interface HudWeaponTimers {
 export interface HudState {
   score: number;
   combo: number;
+  emp: number; // cargas do pulso EMP (gatilho especial)
   fuel: number; // 0..100
   fuelSeconds: number; // segundos restantes estimados
   fuelCritical: boolean; // <= 10s de combustível
@@ -91,6 +92,11 @@ export const GAME_CONST = {
   bulletRadius: 4,
   lives: 3,
   invulnOnSpawn: 2.5,
+  empStart: 2, // cargas iniciais do pulso EMP
+  empMax: 3, // máximo de cargas carregáveis
+  empDamage: 3, // dano por pulso em inimigos comuns
+  empBossDamage: 12, // dano fixo por pulso no chefe
+  empCooldown: 0.6, // segundos entre pulsos
   chapterDistances: [0, 3000, 7000, 12000] as const,
   bridgeEvery: 2400, // metros entre pontes (portais de capítulo)
 } as const;

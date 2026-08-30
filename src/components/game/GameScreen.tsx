@@ -19,12 +19,13 @@ import {
 import { RiverRaidGame } from "@/lib/game/engine";
 import type { HudState, RunResult } from "@/lib/game/types";
 import { FuelGauge } from "./FuelGauge";
-import { TouchControls } from "./TouchControls";
+import { VirtualControls } from "./VirtualControls";
 import { cn } from "@/lib/utils";
 
 const initialHud: HudState = {
   score: 0,
   combo: 0,
+  emp: 2,
   fuel: 100,
   fuelSeconds: 60,
   fuelCritical: false,
@@ -231,10 +232,24 @@ export function GameScreen({ onFinished, onExit }: Props) {
             time={hud.weapons.turbo}
             colorClass="text-purple-300 border-purple-500/50 bg-purple-950/50"
           />
+          {/* cargas do pulso EMP (gatilho) */}
+          <div
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg border px-2 py-1 backdrop-blur-md shadow-lg",
+              hud.emp > 0
+                ? "text-sky-300 border-sky-400/50 bg-sky-950/50"
+                : "text-muted-foreground/60 border-border/50 bg-card/50"
+            )}
+            aria-label={`${hud.emp} cargas de pulso EMP restantes`}
+          >
+            <Zap className="size-3.5" aria-hidden />
+            <span className="text-[10px] font-black tracking-wide">EMP</span>
+            <span className="text-[10px] font-bold tabular-nums">×{hud.emp}</span>
+          </div>
         </div>
 
-        {/* ---------------- Controles de toque ---------------- */}
-        <TouchControls gameRef={gameRef} />
+        {/* ---------------- Controles de toque (joystick + botões arrastáveis) ---------------- */}
+        <VirtualControls gameRef={gameRef} emp={hud.emp} paused={hud.paused && started} />
 
         {/* ---------------- Sobreposição de pausa ---------------- */}
         {hud.paused && started && (
@@ -249,6 +264,14 @@ export function GameScreen({ onFinished, onExit }: Props) {
                 CONTINUAR
               </button>
               <button
+                onClick={() =>
+                  window.dispatchEvent(new CustomEvent("rr-reset-controls"))
+                }
+                className="h-11 rounded-xl border border-border bg-card/70 font-bold text-sm hover:bg-secondary/70 cursor-pointer"
+              >
+                REDEFINIR CONTROLES DE TOQUE
+              </button>
+              <button
                 onClick={onExit}
                 className="h-11 rounded-xl border border-border bg-card/70 font-bold text-sm hover:bg-secondary/70 cursor-pointer"
               >
@@ -256,7 +279,8 @@ export function GameScreen({ onFinished, onExit }: Props) {
               </button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Tecla <kbd className="px-1.5 py-0.5 rounded bg-secondary font-mono">P</kbd> para pausar/continuar
+              Tecla <kbd className="px-1.5 py-0.5 rounded bg-secondary font-mono">P</kbd> para pausar/continuar ·{" "}
+              <kbd className="px-1.5 py-0.5 rounded bg-secondary font-mono">K</kbd> dispara o pulso EMP
             </p>
           </div>
         )}
@@ -267,8 +291,9 @@ export function GameScreen({ onFinished, onExit }: Props) {
             <div className="text-center px-6">
               <h2 className="text-2xl sm:text-3xl font-black text-foreground">PREPARADO, PILOTO?</h2>
               <p className="text-sm text-muted-foreground mt-2 max-w-72">
-                ← → mover · ↑ ↓ velocidade · ESPAÇO atirar · P pausar
+                ← → mover · ↑ ↓ velocidade · ESPAÇO atirar · K pulso EMP · P pausar
                 <br />
+                No toque: joystick digital + botões TIRO/GATILHO (segure e arraste para reposicionar).
                 Joystick conectado é detectado automaticamente.
               </p>
             </div>
